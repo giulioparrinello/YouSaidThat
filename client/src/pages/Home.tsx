@@ -16,19 +16,10 @@ import {
   Eye,
   ChevronDown,
   ChevronRight,
-  ShieldAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import TextType from "@/components/TextType";
 import Aurora from "@/components/Aurora";
-
-const typewriterText = [
-  "Record your ideas about the future.",
-  "Seal them with AES-256 encryption.",
-  "Verify with cryptographic timestamps.",
-  "Reveal them when the year arrives.",
-  "The blockchain never forgets.",
-];
 
 const MARQUEE_ITEMS = [
   "AES-256 Client-Side Encryption",
@@ -135,9 +126,9 @@ function ComingSoonModal({
                   statements. This feature will be live on launch day.
                 </p>
               </div>
-              <div className="flex items-center gap-1.5 text-[9px] font-mono text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-100">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                ALPHA BUILD IN PROGRESS
+              <div className="flex items-center gap-1.5 text-[9px] font-mono text-[#111] bg-[#F5F5F5] px-3 py-1 rounded-full border border-[#E5E5E5]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#6366F1] animate-pulse" />
+                #PANKO000
               </div>
               <Button
                 onClick={onClose}
@@ -255,6 +246,22 @@ export default function Home() {
       {/* Coming Soon Modal */}
       <ComingSoonModal open={modal.open} onClose={closeModal} feature={modal.feature} />
 
+      {/* ─── TOP SCROLLING TICKER ─── */}
+      <div className="relative z-20 w-full bg-[#111111] text-white py-2 overflow-hidden">
+        <motion.div
+          animate={{ x: ["0%", "-50%"] }}
+          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
+          className="flex whitespace-nowrap gap-0"
+        >
+          {marqueeItems.map((item, i) => (
+            <span key={i} className="inline-flex items-center gap-6 px-8 text-[10px] font-mono tracking-[0.2em] uppercase text-white/50">
+              {item}
+              <span className="text-[#6366F1] opacity-60">◆</span>
+            </span>
+          ))}
+        </motion.div>
+      </div>
+
       {/* ─── HERO ─── */}
       <section className="relative min-h-screen flex flex-col bg-[#F8F8FF] overflow-hidden">
         {/* Aurora background */}
@@ -267,17 +274,13 @@ export default function Home() {
         </div>
 
         {/* Nav */}
-        <nav className="relative z-10 w-full px-6 py-6 md:px-10 flex justify-between items-center">
+        <nav className="relative z-10 w-full px-8 py-6 md:px-12 flex justify-between items-center">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1 }}
-            className="flex items-center gap-2"
           >
-            <div className="w-7 h-7 rounded-lg bg-[#111111] flex items-center justify-center">
-              <ShieldCheck className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-semibold tracking-tight text-sm text-[#111111]">
+            <span className="font-semibold text-base md:text-lg text-[#111111] tracking-tight">
               yousaidthat.org
             </span>
           </motion.div>
@@ -286,90 +289,70 @@ export default function Home() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 0.1 }}
-            className="flex items-center gap-3"
           >
-            <span className="hidden md:flex items-center gap-1.5 text-[10px] font-mono text-[#666666] border border-[#E5E5E5] px-2.5 py-1 rounded-full bg-white/70 backdrop-blur-sm">
-              <span className="w-1 h-1 rounded-full bg-green-500 animate-pulse" />
-              V.01-ALPHA
-            </span>
-            <Button
-              variant="ghost"
-              className="text-sm text-[#555] hover:text-[#111] hover:bg-white/60 font-medium transition-colors backdrop-blur-sm"
+            <button
               onClick={() => openModal("Sign In")}
+              className="text-sm text-[#555] hover:text-[#111] font-medium transition-colors"
             >
               Sign In
-            </Button>
+            </button>
           </motion.div>
         </nav>
 
         {/* Center content */}
-        <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 text-center gap-6">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.2 }}
-          >
-            <span className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1] bg-white/60 backdrop-blur-sm px-3 py-1 rounded-full border border-[#6366F1]/15">
-              The Trustless Future
-            </span>
-          </motion.div>
+        <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 text-center gap-7 pb-16">
 
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
+          {/* Main headline */}
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.35 }}
-            className="flex items-center justify-center min-h-[56px] md:min-h-[72px]"
+            transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="text-6xl md:text-7xl lg:text-[88px] font-bold tracking-tighter leading-[1.05] text-[#111111]"
           >
+            Your Predictions.<br />
+            Your Proof.
+          </motion.h1>
+
+          {/* TextType subtitle */}
+          <div className="flex items-center justify-center min-h-[48px] w-full max-w-2xl">
             <TextType
-              text={typewriterText}
-              className="text-2xl md:text-4xl lg:text-5xl font-semibold tracking-tight text-[#111111] max-w-2xl leading-snug"
-              typingSpeed={60}
-              deletingSpeed={35}
-              pauseDuration={2000}
+              text={[
+                "Record your ideas about the future.",
+                "Seal them in time.",
+                "Reveal them when the year arrives.",
+              ]}
+              typingSpeed={75}
+              pauseDuration={1500}
+              showCursor
               cursorCharacter="_"
-              cursorClassName="text-[#6366F1] ml-1"
+              deletingSpeed={50}
+              cursorBlinkDuration={0.5}
+              className="text-xl md:text-2xl font-normal text-center"
+              cursorClassName="text-[#6366F1]"
+              textColors={["#444444", "#444444", "#444444"]}
             />
-          </motion.div>
+          </div>
 
           {/* CTA buttons */}
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.55 }}
-            className="flex flex-col sm:flex-row items-center gap-3 mt-2"
+            transition={{ duration: 0.7, delay: 0.6 }}
+            className="flex flex-col sm:flex-row items-center gap-3"
           >
             <button
               onClick={() => openModal("Create a Prediction")}
-              className="flex items-center gap-2 h-12 px-7 rounded-full bg-[#111111] text-white text-sm font-medium hover:bg-[#222] hover:-translate-y-0.5 transition-all duration-200 shadow-lg group"
+              className="flex items-center gap-2 h-12 px-8 rounded-full bg-[#111111] text-white text-sm font-semibold hover:bg-[#222] transition-colors group"
             >
               Create a Prediction
               <ChevronRight className="w-4 h-4 opacity-60 group-hover:translate-x-0.5 transition-transform" />
             </button>
             <button
-              onClick={() => openModal("Whitepaper")}
-              className="flex items-center gap-2 h-12 px-7 rounded-full border border-[#111111]/20 bg-white/50 backdrop-blur-sm text-[#111111] text-sm font-medium hover:bg-white/80 transition-all duration-200"
+              onClick={() => openModal("Learn More")}
+              className="flex items-center h-12 px-8 rounded-full bg-white/70 backdrop-blur-sm border border-[#111111]/10 text-[#111111] text-sm font-semibold hover:bg-white transition-colors"
             >
-              View Whitepaper
+              Learn More
             </button>
-          </motion.div>
-
-          {/* Floating badge */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1 }}
-            className="flex items-center gap-1.5"
-          >
-            <motion.div
-              animate={{ y: [0, -4, 0] }}
-              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-              className="bg-white/70 backdrop-blur-sm border border-[#E5E5E5] shadow-sm rounded-lg px-2.5 py-1 flex items-center gap-1.5"
-            >
-              <ShieldAlert className="w-3 h-3 text-[#6366F1]" />
-              <span className="text-[9px] font-mono font-bold text-[#111111] uppercase tracking-wider">
-                Non-Custodial · Zero-Knowledge
-              </span>
-            </motion.div>
           </motion.div>
         </div>
 
@@ -378,28 +361,12 @@ export default function Home() {
           <motion.div
             animate={{ y: [0, 6, 0] }}
             transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-            className="text-[#111111]/30"
+            className="text-[#111111]/25"
           >
             <ChevronDown className="w-5 h-5" />
           </motion.div>
         </div>
       </section>
-
-      {/* ─── SCROLLING MARQUEE ─── */}
-      <div className="w-full bg-[#111111] text-white py-5 overflow-hidden border-y border-white/5">
-        <motion.div
-          animate={{ x: ["0%", "-50%"] }}
-          transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
-          className="flex whitespace-nowrap gap-0"
-        >
-          {marqueeItems.map((item, i) => (
-            <span key={i} className="inline-flex items-center gap-6 px-8 text-[11px] font-mono tracking-[0.2em] uppercase text-white/50">
-              {item}
-              <span className="text-[#6366F1] opacity-60">◆</span>
-            </span>
-          ))}
-        </motion.div>
-      </div>
 
       {/* ─── REST OF PAGE ─── */}
       <main className="flex flex-col items-center px-6 md:px-12 w-full max-w-7xl mx-auto pb-24">
