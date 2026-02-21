@@ -4,3 +4,9 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+.local/
+.replit
+*.bin
+*.db
+*.db-shm
+*.db-wal
