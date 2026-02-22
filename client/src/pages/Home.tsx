@@ -263,7 +263,7 @@ export default function Home() {
       </div>
 
       {/* ─── HERO ─── */}
-      <section className="relative min-h-screen flex flex-col bg-[#F8F8FF] overflow-hidden">
+      <section className="relative min-h-screen flex flex-col bg-[#FAFAFA] overflow-hidden">
         {/* Aurora background */}
         <div className="absolute inset-0 z-0">
           <Aurora
