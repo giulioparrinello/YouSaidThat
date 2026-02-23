@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(sleep 8 && curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5000 2>&1)"
-    ]
-  }
-}

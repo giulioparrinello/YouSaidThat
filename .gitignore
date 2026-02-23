@@ -1,3 +1,6 @@
+.claude/
+PRD.md
+PLAN.md
 node_modules
 dist
 .DS_Store
@@ -10,3 +13,12 @@ vite.config.ts.*
 *.db
 *.db-shm
 *.db-wal
+
+# ── Sensitive / environment ───────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets.json

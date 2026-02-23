@@ -882,7 +882,7 @@ export default function Home() {
                 </span>
               </Link>
               <a
-                href="https://github.com"
+                href="https://github.com/yousaidthat/yousaidthat"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-[#111111] transition-colors font-medium"
