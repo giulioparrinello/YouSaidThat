@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import {
   Lock,
   Fingerprint,
@@ -16,10 +18,12 @@ import {
   Eye,
   ChevronDown,
   ChevronRight,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import TextType from "@/components/TextType";
 import Aurora from "@/components/Aurora";
+import { api, type PublicPrediction } from "@/lib/api";
 
 const MARQUEE_ITEMS = [
   "AES-256 Client-Side Encryption",
@@ -45,26 +49,42 @@ const HOW_IT_WORKS = [
   {
     step: "01",
     icon: Lock,
-    title: "Write your prediction",
-    desc: "Compose your vision of the future. Your text is encrypted locally in your browser before anything leaves your device.",
+    title: "Choose your mode",
+    desc: "Proof of Existence timestamps any content publicly. Sealed Prediction encrypts your text locally — the server only ever sees a hash.",
+    cryptoLabel: "MODE SELECT",
+    cryptoStatus: "privacy-first",
+    hexFragment: "mode...set",
+    barWidth: "25%",
   },
   {
     step: "02",
     icon: Hash,
-    title: "Anchor to Bitcoin",
-    desc: "A SHA-512 hash of your sealed payload is committed to the Bitcoin blockchain via OpenTimestamps — immutable, decentralized proof.",
+    title: "Hash your content",
+    desc: "SHA-256 produces a unique 64-character fingerprint of your content. This hash is the only thing we store — never your text or keys.",
+    cryptoLabel: "SHA-256",
+    cryptoStatus: "64 hex chars",
+    hexFragment: "a3f9...e12b",
+    barWidth: "72%",
   },
   {
     step: "03",
-    icon: Timer,
-    title: "Set your time-lock",
-    desc: "Choose a year between now and 2040. The decryption key is derived from a future block height — the unlock is deterministic and inevitable.",
+    icon: ShieldCheck,
+    title: "Anchor to Bitcoin",
+    desc: "Your hash is submitted to the Bitcoin blockchain via OpenTimestamps and a RFC 3161 TSA token is issued — immutable, decentralized proof of existence.",
+    cryptoLabel: "OTS + RFC 3161",
+    cryptoStatus: "BTC pending…",
+    hexFragment: "9b1e...c3a0",
+    barWidth: "91%",
   },
   {
     step: "04",
-    icon: Eye,
-    title: "The world sees the truth",
-    desc: "When the target year arrives, your prediction is revealed automatically. No trust required — the math speaks for itself.",
+    icon: Fingerprint,
+    title: "Claim authorship",
+    desc: "At your target year, upload your capsule file. Your RSA-PSS signature proves ownership without revealing anything more than you choose.",
+    cryptoLabel: "RSA-PSS 2048",
+    cryptoStatus: "Sig valid ✓",
+    hexFragment: "d1a5...7f3e",
+    barWidth: "100%",
   },
 ];
 
@@ -149,15 +169,30 @@ function WaitlistForm() {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !email.includes("@")) return;
     setLoading(true);
-    setTimeout(() => {
+    setError(null);
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.message ?? "Something went wrong. Try again.");
+      } else {
+        setSubmitted(true);
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
       setLoading(false);
-      setSubmitted(true);
-    }, 900);
+    }
   };
 
   return (
@@ -195,8 +230,9 @@ function WaitlistForm() {
             <motion.form
               key="form"
               onSubmit={handleSubmit}
-              className="flex w-full max-w-sm gap-2"
+              className="flex flex-col w-full max-w-sm gap-2"
             >
+              <div className="flex w-full gap-2">
               <input
                 type="email"
                 value={email}
@@ -222,11 +258,108 @@ function WaitlistForm() {
                   </>
                 )}
               </button>
+              </div>
+              {error && (
+                <p className="text-xs text-red-500 text-center">{error}</p>
+              )}
             </motion.form>
           )}
         </AnimatePresence>
       </div>
     </motion.div>
+  );
+}
+
+// ─── Public Predictions Feed ──────────────────────────────────────────────────
+function PublicFeed() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["public-predictions"],
+    queryFn: () => api.getPublicPredictions({ limit: 6 }),
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">
+        {[...Array(6)].map((_, i) => (
+          <div
+            key={i}
+            className="h-24 rounded-2xl bg-white border border-[#E5E5E5] animate-pulse"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (!data?.predictions?.length) return null;
+
+  return (
+    <div className="w-full max-w-5xl space-y-5">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1]">
+          Public predictions
+        </p>
+        <div className="flex items-center gap-4">
+          <Link href="/community">
+            <span className="text-xs text-[#6366F1] hover:text-[#4F46E5] transition-colors cursor-pointer flex items-center gap-1 font-medium">
+              View all <ChevronRight className="w-3 h-3" />
+            </span>
+          </Link>
+          <Link href="/verify">
+            <span className="text-xs text-[#999] hover:text-[#111] transition-colors cursor-pointer flex items-center gap-1">
+              <Search className="w-3 h-3" /> Verify a hash
+            </span>
+          </Link>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {data.predictions.map((p: PublicPrediction) => (
+          <motion.div
+            key={p.id}
+            initial={{ opacity: 0, y: 8 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="bg-white border border-[#E5E5E5] rounded-2xl p-4 space-y-2.5 hover:border-[#6366F1]/30 transition-colors"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono text-[#CCC]">
+                {p.hash_preview}…
+              </span>
+              <span
+                className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded-full border ${
+                  p.ots_status === "confirmed"
+                    ? "text-green-600 bg-green-50 border-green-100"
+                    : "text-amber-600 bg-amber-50 border-amber-100"
+                }`}
+              >
+                {p.ots_status === "confirmed" ? "BTC ✓" : "pending"}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-bold text-[#111]">
+                {p.target_year}
+              </span>
+              <span className="text-[10px] text-[#CCC]">·</span>
+              <span className="text-[10px] text-[#999] capitalize">
+                {p.mode.replace(/_/g, " ")}
+              </span>
+            </div>
+            {p.keywords && p.keywords.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {p.keywords.map((k) => (
+                  <span
+                    key={k}
+                    className="px-2 py-0.5 bg-[#F5F5F5] rounded-full text-[10px] font-mono text-[#666]"
+                  >
+                    {k}
+                  </span>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -289,13 +422,23 @@ export default function Home() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 0.1 }}
+            className="flex items-center gap-4"
           >
-            <button
-              onClick={() => openModal("Sign In")}
-              className="text-sm text-[#555] hover:text-[#111] font-medium transition-colors"
-            >
-              Sign In
-            </button>
+            <Link href="/verify">
+              <span className="text-sm text-[#555] hover:text-[#111] font-medium transition-colors cursor-pointer">
+                Verify
+              </span>
+            </Link>
+            <Link href="/unlock">
+              <span className="text-sm text-[#555] hover:text-[#111] font-medium transition-colors cursor-pointer">
+                Unlock
+              </span>
+            </Link>
+            <Link href="/create">
+              <button className="h-8 px-4 rounded-full bg-[#111111] text-white text-xs font-semibold hover:bg-[#222] transition-colors">
+                Create
+              </button>
+            </Link>
           </motion.div>
         </nav>
 
@@ -340,19 +483,17 @@ export default function Home() {
             transition={{ duration: 0.7, delay: 0.6 }}
             className="flex flex-col sm:flex-row items-center gap-3"
           >
-            <button
-              onClick={() => openModal("Create a Prediction")}
-              className="flex items-center gap-2 h-12 px-8 rounded-full bg-[#111111] text-white text-sm font-semibold hover:bg-[#222] transition-colors group"
-            >
-              Create a Prediction
-              <ChevronRight className="w-4 h-4 opacity-60 group-hover:translate-x-0.5 transition-transform" />
-            </button>
-            <button
-              onClick={() => openModal("Learn More")}
-              className="flex items-center h-12 px-8 rounded-full bg-white/70 backdrop-blur-sm border border-[#111111]/10 text-[#111111] text-sm font-semibold hover:bg-white transition-colors"
-            >
-              Learn More
-            </button>
+            <Link href="/create">
+              <button className="flex items-center gap-2 h-12 px-8 rounded-full bg-[#111111] text-white text-sm font-semibold hover:bg-[#222] transition-colors group">
+                Create a Prediction
+                <ChevronRight className="w-4 h-4 opacity-60 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+            </Link>
+            <Link href="/unlock">
+              <button className="flex items-center h-12 px-8 rounded-full bg-white/70 backdrop-blur-sm border border-[#111111]/10 text-[#111111] text-sm font-semibold hover:bg-white transition-colors">
+                Unlock capsule
+              </button>
+            </Link>
           </motion.div>
         </div>
 
@@ -398,6 +539,108 @@ export default function Home() {
         {/* Divider */}
         <div className="w-full max-w-4xl h-px bg-gradient-to-r from-transparent via-[#E5E5E5] to-transparent mt-20 mb-16" />
 
+        {/* Two Modes */}
+        <div className="w-full max-w-4xl mb-24">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="text-center mb-10"
+          >
+            <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1] mb-3">
+              Two ways to prove it
+            </p>
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
+              Choose your mode
+            </h2>
+          </motion.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* Mode 1: Proof of Existence */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+              className="bg-white border border-[#E5E5E5] rounded-3xl p-8 flex flex-col gap-5"
+            >
+              <div className="flex items-start justify-between">
+                <div className="w-12 h-12 rounded-2xl bg-[#F5F5F5] border border-[#E5E5E5] flex items-center justify-center">
+                  <Eye className="w-5 h-5 text-[#111]" strokeWidth={1.5} />
+                </div>
+                <span className="text-[9px] font-mono uppercase tracking-widest text-[#999] bg-[#F5F5F5] border border-[#E5E5E5] px-2 py-1 rounded-full">
+                  Public-ready
+                </span>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold tracking-tight mb-2">
+                  Proof of Existence
+                </h3>
+                <p className="text-sm text-[#666] leading-relaxed">
+                  Prove that a document, idea, or statement existed at a specific
+                  point in time. No encryption — the content is yours to share
+                  whenever you choose. Best for research, public claims, and
+                  timestamped IP.
+                </p>
+              </div>
+              <ul className="space-y-2 mt-auto">
+                {["SHA-256 hash anchored to Bitcoin", "RFC 3161 TSA timestamp", "Upload text or any file", "Optional public feed listing"].map((f) => (
+                  <li key={f} className="flex items-center gap-2 text-[11px] text-[#555]">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-[#6366F1] shrink-0" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <Link href="/create">
+                <button className="w-full h-11 rounded-full border border-[#E5E5E5] text-sm font-medium hover:bg-[#F5F5F5] transition-colors flex items-center justify-center gap-2">
+                  Create proof <ChevronRight className="w-4 h-4" />
+                </button>
+              </Link>
+            </motion.div>
+
+            {/* Mode 2: Sealed Prediction */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+              className="bg-[#111111] text-white rounded-3xl p-8 flex flex-col gap-5"
+            >
+              <div className="flex items-start justify-between">
+                <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center">
+                  <Lock className="w-5 h-5 text-white" strokeWidth={1.5} />
+                </div>
+                <span className="text-[9px] font-mono uppercase tracking-widest text-white/50 bg-white/10 border border-white/10 px-2 py-1 rounded-full">
+                  Zero-knowledge
+                </span>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold tracking-tight mb-2">
+                  Sealed Prediction
+                </h3>
+                <p className="text-sm text-white/60 leading-relaxed">
+                  Write a prediction, encrypt it locally with AES-256-GCM, and
+                  anchor its hash to Bitcoin. The server never sees your content
+                  or your keys. Unlock it at your target year to prove you knew.
+                </p>
+              </div>
+              <ul className="space-y-2 mt-auto">
+                {["AES-256-GCM client-side encryption", "RSA-PSS keypair for attestation", "Bitcoin + TSA timestamp", ".capsule file — your only key"].map((f) => (
+                  <li key={f} className="flex items-center gap-2 text-[11px] text-white/60">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-[#6366F1] shrink-0" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <Link href="/create">
+                <button className="w-full h-11 rounded-full bg-white text-[#111] text-sm font-medium hover:bg-white/90 transition-colors flex items-center justify-center gap-2">
+                  Seal a prediction <ChevronRight className="w-4 h-4" />
+                </button>
+              </Link>
+            </motion.div>
+          </div>
+        </div>
+
         {/* How it works */}
         <div className="w-full max-w-5xl mb-24">
           <motion.div
@@ -422,27 +665,87 @@ export default function Home() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-40px" }}
                 transition={{ duration: 0.6, delay: idx * 0.1 }}
-                className="relative bg-white border border-[#E5E5E5] rounded-3xl p-8 flex flex-col gap-5 group hover:border-[#6366F1]/30 hover:shadow-sm transition-all duration-300"
+                className="relative bg-white border border-[#E5E5E5] rounded-3xl p-8 flex flex-col gap-5 group hover:border-[#6366F1]/30 hover:shadow-sm transition-all duration-300 overflow-hidden"
               >
+                {/* Corner glow */}
+                <div className="absolute top-0 right-0 w-40 h-40 bg-[#6366F1]/5 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700 -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+
+                {/* Scanning line on hover */}
+                <motion.div
+                  style={{ top: "10%" }}
+                  className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#6366F1]/20 to-transparent pointer-events-none opacity-0 group-hover:opacity-100"
+                  animate={{ top: ["10%", "90%", "10%"] }}
+                  transition={{ duration: 4, repeat: Infinity, ease: "linear", delay: idx * 0.8 }}
+                />
+
                 <div className="flex items-start justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-[#FAFAFA] border border-[#E5E5E5] flex items-center justify-center group-hover:bg-[#111111] group-hover:border-[#111111] transition-all duration-500">
+                  <div className="w-12 h-12 rounded-2xl bg-[#FAFAFA] border border-[#E5E5E5] flex items-center justify-center group-hover:bg-[#111111] group-hover:border-[#111111] transition-all duration-500 relative">
                     <step.icon
                       className="w-5 h-5 text-[#111111] group-hover:text-white transition-colors duration-500"
                       strokeWidth={1.5}
                     />
+                    <motion.div
+                      animate={{ opacity: [0, 0.6, 0], scale: [0.8, 1.4, 0.8] }}
+                      transition={{ duration: 3, repeat: Infinity, delay: idx * 0.6 }}
+                      className="absolute inset-0 border border-[#6366F1]/30 rounded-2xl pointer-events-none"
+                    />
                   </div>
-                  <span className="text-[10px] font-mono text-[#BBBBBB] font-bold">
-                    {step.step}
-                  </span>
+                  <div className="text-right flex flex-col items-end gap-1">
+                    <span className="text-[10px] font-mono text-[#BBBBBB] font-bold">{step.step}</span>
+                    <span className="text-[9px] font-mono text-[#6366F1]/50 uppercase tracking-widest">{step.cryptoLabel}</span>
+                  </div>
                 </div>
+
                 <div className="space-y-2">
                   <h3 className="font-bold text-lg tracking-tight">{step.title}</h3>
                   <p className="text-[#666666] text-sm leading-relaxed">{step.desc}</p>
+                </div>
+
+                {/* Crypto footer */}
+                <div className="mt-auto pt-4 border-t border-[#F5F5F5] space-y-2.5">
+                  {/* Progress bar */}
+                  <div className="h-0.5 w-full bg-[#F0F0F0] rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: "0%" }}
+                      whileInView={{ width: step.barWidth }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 1.2, delay: idx * 0.15 + 0.3, ease: [0.16, 1, 0.3, 1] }}
+                      className="h-full bg-gradient-to-r from-[#6366F1]/60 to-[#6366F1] rounded-full"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <motion.div
+                        animate={{ opacity: [1, 0.2, 1] }}
+                        transition={{ duration: 2, repeat: Infinity, delay: idx * 0.4 }}
+                        className="w-1.5 h-1.5 rounded-full bg-green-400"
+                      />
+                      <span className="text-[9px] font-mono text-[#999] uppercase tracking-wider">{step.cryptoStatus}</span>
+                    </div>
+                    <motion.span
+                      animate={{ opacity: [0.25, 0.6, 0.25] }}
+                      transition={{ duration: 3.5, repeat: Infinity, delay: idx * 0.5 }}
+                      className="text-[9px] font-mono text-[#CCCCCC]"
+                    >
+                      {step.hexFragment}
+                    </motion.span>
+                  </div>
                 </div>
               </motion.div>
             ))}
           </div>
         </div>
+
+        {/* Public Feed */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.7 }}
+          className="w-full max-w-5xl mb-16"
+        >
+          <PublicFeed />
+        </motion.div>
 
         {/* Demo Capsule */}
         <motion.div
@@ -471,17 +774,6 @@ export default function Home() {
                   0x7A2F...9B1E4D...C3A0...F9E2...8B7C...D1A5
                 </div>
                 <div className="font-semibold text-[#111111] mt-4">Locked until 2040</div>
-              </div>
-              <div className="w-full h-px bg-gradient-to-r from-transparent via-[#E5E5E5] to-transparent" />
-              <div className="flex gap-2 justify-center flex-wrap">
-                {["AI", "Energy", "Society"].map((keyword) => (
-                  <span
-                    key={keyword}
-                    className="text-[9px] font-mono font-bold px-2 py-1 rounded-md bg-[#FAFAFA] text-[#111111] border border-[#E5E5E5] uppercase tracking-wider"
-                  >
-                    {keyword}
-                  </span>
-                ))}
               </div>
               <div className="flex items-center gap-1.5 text-[9px] font-mono text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">
                 <Fingerprint className="w-3 h-3" />
@@ -584,6 +876,11 @@ export default function Home() {
               >
                 Security Audit
               </button>
+              <Link href="/privacy">
+                <span className="hover:text-[#111111] transition-colors font-medium cursor-pointer">
+                  Privacy
+                </span>
+              </Link>
               <a
                 href="https://github.com"
                 target="_blank"
