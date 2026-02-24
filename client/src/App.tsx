@@ -11,6 +11,7 @@ import Unlock from "@/pages/Unlock";
 import Attestation from "@/pages/Attestation";
 import Privacy from "@/pages/Privacy";
 import Community from "@/pages/Community";
+import Admin from "@/pages/Admin";
 
 function Router() {
   return (
@@ -22,6 +23,7 @@ function Router() {
       <Route path="/community" component={Community} />
       <Route path="/attestation/:id" component={Attestation} />
       <Route path="/privacy" component={Privacy} />
+      <Route path="/admin" component={Admin} />
       <Route component={NotFound} />
     </Switch>
   );

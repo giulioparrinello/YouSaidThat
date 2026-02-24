@@ -29,7 +29,7 @@ const MARQUEE_ITEMS = [
   "AES-256 Client-Side Encryption",
   "Zero-Knowledge Architecture",
   "Bitcoin Blockchain Anchored",
-  "Quantum-Resistant SHA-512",
+  "Arweave Permanent Storage",
   "OpenTimestamps Protocol",
   "Non-Custodial by Design",
   "Deterministic Time-Lock",
@@ -50,7 +50,7 @@ const HOW_IT_WORKS = [
     step: "01",
     icon: Lock,
     title: "Choose your mode",
-    desc: "Proof of Existence timestamps any content publicly. Sealed Prediction encrypts your text locally — the server only ever sees a hash.",
+    desc: "Proof of Existence (cleartext or encrypted) anchors content permanently to Arweave. Sealed Prediction encrypts locally — the server never sees your plaintext.",
     cryptoLabel: "MODE SELECT",
     cryptoStatus: "privacy-first",
     hexFragment: "mode...set",
@@ -59,10 +59,10 @@ const HOW_IT_WORKS = [
   {
     step: "02",
     icon: Hash,
-    title: "Hash your content",
-    desc: "SHA-256 produces a unique 64-character fingerprint of your content. This hash is the only thing we store — never your text or keys.",
-    cryptoLabel: "SHA-256",
-    cryptoStatus: "64 hex chars",
+    title: "Hash & anchor to Arweave",
+    desc: "SHA-256 produces a 64-character fingerprint. For public Proof of Existence, the full text is also uploaded to Arweave — permanent, censorship-resistant storage.",
+    cryptoLabel: "SHA-256 + Arweave",
+    cryptoStatus: "stored forever",
     hexFragment: "a3f9...e12b",
     barWidth: "72%",
   },
@@ -323,7 +323,7 @@ function PublicFeed() {
           >
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-mono text-[#CCC]">
-                {p.hash_preview}…
+                {p.content ? `${p.target_year}` : `${p.hash_preview}…`}
               </span>
               <span
                 className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded-full border ${
@@ -335,15 +335,21 @@ function PublicFeed() {
                 {p.ots_status === "confirmed" ? "BTC ✓" : "pending"}
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold text-[#111]">
-                {p.target_year}
-              </span>
-              <span className="text-[10px] text-[#CCC]">·</span>
-              <span className="text-[10px] text-[#999] capitalize">
-                {p.mode.replace(/_/g, " ")}
-              </span>
-            </div>
+            {p.content ? (
+              <p className="text-xs text-[#444] leading-relaxed line-clamp-2">
+                {p.content}
+              </p>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-bold text-[#111]">
+                  {p.target_year}
+                </span>
+                <span className="text-[10px] text-[#CCC]">·</span>
+                <span className="text-[10px] text-[#999] capitalize">
+                  {p.mode.replace(/_/g, " ")}
+                </span>
+              </div>
+            )}
             {p.keywords && p.keywords.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {p.keywords.map((k) => (
@@ -578,13 +584,18 @@ export default function Home() {
                 </h3>
                 <p className="text-sm text-[#666] leading-relaxed">
                   Prove that a document, idea, or statement existed at a specific
-                  point in time. No encryption — the content is yours to share
-                  whenever you choose. Best for research, public claims, and
-                  timestamped IP.
+                  point in time. Choose <strong>Cleartext</strong> to store the content
+                  openly on Arweave — verifiable by anyone, forever — or <strong>Encrypted</strong>
+                  to keep the content private with the key only in your PDF.
                 </p>
               </div>
               <ul className="space-y-2 mt-auto">
-                {["SHA-256 hash anchored to Bitcoin", "RFC 3161 TSA timestamp", "Upload text or any file", "Optional public feed listing"].map((f) => (
+                {[
+                  "SHA-256 hash anchored to Bitcoin",
+                  "RFC 3161 TSA timestamp",
+                  "Permanent storage on Arweave",
+                  "Cleartext or encrypted sub-mode",
+                ].map((f) => (
                   <li key={f} className="flex items-center gap-2 text-[11px] text-[#555]">
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#6366F1] shrink-0" />
                     {f}
@@ -794,7 +805,7 @@ export default function Home() {
             {
               icon: ShieldCheck,
               title: "Immutable Notarization",
-              desc: "Every entry is hashed and anchored to the Bitcoin blockchain via OpenTimestamps for permanent proof.",
+              desc: "Every entry is hashed and anchored to the Bitcoin blockchain via OpenTimestamps. Public predictions are also stored permanently on Arweave — two independent proofs.",
             },
             {
               icon: Clock,
@@ -838,6 +849,9 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2 font-mono text-[10px] font-bold">
             <ShieldCheck className="w-4 h-4" /> AES-256-GCM
+          </div>
+          <div className="flex items-center gap-2 font-mono text-[10px] font-bold">
+            <Globe className="w-4 h-4" /> ARWEAVE PERMANENT
           </div>
           <div className="flex items-center gap-2 font-mono text-[10px] font-bold">
             <Globe className="w-4 h-4" /> DECENTRALIZED PROOF

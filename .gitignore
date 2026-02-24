@@ -22,3 +22,4 @@ vite.config.ts.*
 *.key
 *.p12
 secrets.json
+attached_assets/

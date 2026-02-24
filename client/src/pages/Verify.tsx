@@ -297,6 +297,38 @@ export default function Verify() {
                       )}
                     </div>
 
+                    {/* Original content (cleartext proof_of_existence) */}
+                    {result.content && (
+                      <div>
+                        <p className="text-[10px] font-mono uppercase text-[#BBB] mb-1">
+                          Original Content
+                        </p>
+                        <div className="bg-[#FAFAFA] border border-[#F0F0F0] rounded-xl p-3">
+                          <p className="text-sm text-[#333] leading-relaxed whitespace-pre-wrap">
+                            {result.content}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Arweave link */}
+                    {result.arweave_tx_id && (
+                      <div>
+                        <p className="text-[10px] font-mono uppercase text-[#BBB] mb-1">
+                          Permanent Storage
+                        </p>
+                        <a
+                          href={`https://arweave.net/${result.arweave_tx_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-100 text-xs font-mono text-indigo-700 hover:bg-indigo-100 transition-colors"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                          arweave.net/{result.arweave_tx_id.slice(0, 20)}…
+                        </a>
+                      </div>
+                    )}
+
                     {/* Proof badges */}
                     <div className="flex flex-wrap gap-2 pt-2 border-t border-[#F5F5F5]">
                       <OtsStatusBadge status={result.ots_status ?? "pending"} />
@@ -304,6 +336,12 @@ export default function Verify() {
                         <span className="flex items-center gap-1.5 text-[10px] font-mono text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-full uppercase">
                           <ShieldCheck className="w-3 h-3" />
                           RFC 3161 TSA
+                        </span>
+                      )}
+                      {result.arweave_tx_id && (
+                        <span className="flex items-center gap-1.5 text-[10px] font-mono text-violet-700 bg-violet-50 border border-violet-100 px-2.5 py-1 rounded-full uppercase">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Arweave
                         </span>
                       )}
                     </div>
@@ -320,6 +358,8 @@ export default function Verify() {
                           tsaToken: result.tsa_token,
                           otsStatus: result.ots_status,
                           bitcoinBlock: result.bitcoin_block,
+                          content: result.content ?? undefined,
+                          arweaveTxId: result.arweave_tx_id ?? undefined,
                         })
                       }
                       className="w-full h-10 rounded-full border border-[#6366F1]/30 bg-[#6366F1]/5 text-[#6366F1] text-xs font-medium flex items-center justify-center gap-1.5 hover:bg-[#6366F1]/10 transition-colors"

@@ -1,4 +1,4 @@
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, or } from "drizzle-orm";
 import { db } from "./db";
 import {
   predictions,
@@ -37,6 +37,16 @@ export interface IStorage {
     data: { ots_status: string; ots_proof?: string; bitcoin_block?: number }
   ): Promise<void>;
   getPendingOts(): Promise<Prediction[]>;
+  updateArweaveStatus(
+    id: string,
+    data: { arweave_tx_id?: string; arweave_status: string }
+  ): Promise<void>;
+  getPendingArweaveUploads(): Promise<Prediction[]>;
+  getAdminStats(): Promise<{
+    total: number;
+    otsByStatus: Record<string, number>;
+    arweaveByStatus: Record<string, number>;
+  }>;
 
   // Attestations
   insertAttestation(data: InsertAttestation): Promise<Attestation>;
@@ -147,6 +157,62 @@ export class DrizzleStorage implements IStorage {
       .select()
       .from(predictions)
       .where(eq(predictions.ots_status, "pending"));
+  }
+
+  async updateArweaveStatus(
+    id: string,
+    data: { arweave_tx_id?: string; arweave_status: string }
+  ): Promise<void> {
+    await db.update(predictions).set(data).where(eq(predictions.id, id));
+  }
+
+  async getPendingArweaveUploads(): Promise<Prediction[]> {
+    return db
+      .select()
+      .from(predictions)
+      .where(eq(predictions.arweave_status, "pending"));
+  }
+
+  async getAdminStats(): Promise<{
+    total: number;
+    otsByStatus: Record<string, number>;
+    arweaveByStatus: Record<string, number>;
+  }> {
+    const [{ count }] = await db
+      .select({ count: sql<string>`count(*)` })
+      .from(predictions);
+
+    const otsCounts = await db
+      .select({
+        status: predictions.ots_status,
+        count: sql<string>`count(*)`,
+      })
+      .from(predictions)
+      .groupBy(predictions.ots_status);
+
+    const arweaveCounts = await db
+      .select({
+        status: predictions.arweave_status,
+        count: sql<string>`count(*)`,
+      })
+      .from(predictions)
+      .groupBy(predictions.arweave_status);
+
+    const otsByStatus: Record<string, number> = {};
+    for (const row of otsCounts) {
+      otsByStatus[row.status] = parseInt(row.count, 10);
+    }
+
+    const arweaveByStatus: Record<string, number> = {};
+    for (const row of arweaveCounts) {
+      arweaveByStatus[row.status] = parseInt(row.count, 10);
+    }
+
+    return {
+      total: parseInt(count, 10),
+      otsByStatus,
+      arweaveByStatus,
+    };
   }
 
   async insertAttestation(data: InsertAttestation): Promise<Attestation> {

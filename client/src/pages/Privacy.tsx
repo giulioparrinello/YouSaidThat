@@ -6,22 +6,28 @@ const SECTIONS = [
   {
     title: "What we collect",
     body: `When you register a prediction, we store:
-• The SHA-256 hash of your content — never the content itself
+• The SHA-256 hash of your content — always
 • Your chosen target year, optional keywords, and visibility setting
+• For Proof of Existence (Cleartext sub-mode): the full prediction text is stored in our database and uploaded permanently to Arweave, where it is publicly accessible forever
+• For Proof of Existence (Encrypted sub-mode): only the AES-256-GCM ciphertext is stored — the decryption key never leaves your device
+• For Sealed Prediction: only the hash is stored — content and keys exist solely in the .capsule file you download
 • If you provide an email address, only its SHA-256 hash is stored — we never retain the raw address
 • Standard server access logs (IP address, timestamp) are not permanently stored`,
   },
   {
     title: "What we never collect",
-    body: `• Your prediction text or file contents — all hashing and encryption happens in your browser
-• Your private key or encryption key — these exist only in the .capsule file you download
-• A recoverable form of your email address`,
+    body: `• Your private key or RSA encryption key — these exist only in the .capsule file you download
+• A recoverable form of your email address
+• Prediction text for Sealed Predictions — encryption happens entirely in your browser before anything is sent
+• Decryption keys for Encrypted Proof of Existence predictions`,
   },
   {
     title: "Third-party services",
     body: `To anchor your hash to the Bitcoin blockchain, we submit it to OpenTimestamps calendar servers (alice.btc.calendar.opentimestamps.org and bob.btc.calendar.opentimestamps.org). Your hash (not your content) is sent to these servers.
 
 For an immediate timestamp token (RFC 3161), we use Actalis CA. Again, only your hash is transmitted.
+
+For Proof of Existence predictions (Cleartext mode), the content is uploaded directly to Arweave — a decentralized, permanent storage network. Once uploaded, this content is publicly accessible at arweave.net and cannot be deleted. Do not use Cleartext mode if you intend to keep your prediction private.
 
 Email notifications (where opted in) are sent via Resend. Because we store only the hash of your email, reminder delivery requires manual re-verification at the target year — this feature is planned but not yet active.`,
   },
@@ -91,10 +97,13 @@ export default function Privacy() {
 
           <div className="bg-[#6366F1]/5 border border-[#6366F1]/20 rounded-2xl p-5 mb-10">
             <p className="text-sm text-[#444] leading-relaxed">
-              <strong className="text-[#111]">TL;DR:</strong> We store
-              cryptographic hashes, not content. Your prediction text never
-              leaves your browser in plaintext. We do not sell or share your
-              data. We use no analytics cookies.
+              <strong className="text-[#111]">TL;DR:</strong> For{" "}
+              <strong>Sealed Predictions</strong>, we store only a cryptographic
+              hash — your text never leaves your browser in plaintext. For{" "}
+              <strong>Proof of Existence (Cleartext)</strong>, the full text is
+              stored permanently on Arweave and is publicly accessible forever —
+              this is by design. We do not sell or share your data. We use no
+              analytics cookies.
             </p>
           </div>
 

@@ -9,13 +9,25 @@ export function startCronJobs(): void {
     await pollOtsStatus();
   });
 
+  // Retry pending Arweave uploads every hour
+  cron.schedule("0 * * * *", async () => {
+    console.log("[cron] Starting Arweave retry job");
+    try {
+      const { retryPendingUploads } = await import("./arweave");
+      const succeeded = await retryPendingUploads();
+      console.log(`[cron] Arweave retry: ${succeeded} succeeded`);
+    } catch (err) {
+      console.error("[cron] Arweave retry error:", err);
+    }
+  });
+
   // Send annual email reminders on January 1 at 09:00 UTC
   cron.schedule("0 9 1 1 *", async () => {
     console.log("[cron] Starting annual email reminder job");
     await sendAnnualReminders();
   });
 
-  console.log("[cron] Jobs initialized (OTS every 6h, reminders Jan 1 09:00 UTC)");
+  console.log("[cron] Jobs initialized (OTS every 6h, Arweave retry every 1h, reminders Jan 1 09:00 UTC)");
 }
 
 export async function pollOtsStatus(): Promise<number> {

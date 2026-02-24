@@ -12,6 +12,11 @@ export interface CertificateData {
   bitcoinBlock?: number | null;
   /** Revealed content — only included post-unlock, never for sealed pre-unlock */
   revealedContent?: string;
+  // Proof of existence content fields
+  content?: string;              // original cleartext (cleartext sub-mode)
+  contentEncrypted?: string;     // ciphertext (encrypted sub-mode)
+  encryptionKey?: string;        // AES-256-GCM key (encrypted sub-mode — keep safe!)
+  arweaveTxId?: string | null;   // Arweave TX ID for permanent storage
 }
 
 const BRAND_COLOR: [number, number, number] = [99, 102, 241]; // indigo-500
@@ -19,6 +24,9 @@ const DARK: [number, number, number] = [17, 17, 17];
 const MID: [number, number, number] = [102, 102, 102];
 const LIGHT: [number, number, number] = [229, 229, 229];
 const BG: [number, number, number] = [250, 250, 250];
+const GREEN: [number, number, number] = [34, 197, 94];
+const AMBER: [number, number, number] = [245, 158, 11];
+const RED: [number, number, number] = [239, 68, 68];
 
 function setColor(doc: jsPDF, rgb: [number, number, number]) {
   doc.setTextColor(rgb[0], rgb[1], rgb[2]);
@@ -88,7 +96,6 @@ export function generateCertificatePdf(data: CertificateData): void {
   setColor(doc, MID);
   doc.text("Privacy-First Prediction Notarization", 20, y + 5);
 
-  // Cert label right side
   doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
   setColor(doc, MID);
@@ -124,19 +131,16 @@ export function generateCertificatePdf(data: CertificateData): void {
   doc.setDrawColor(LIGHT[0], LIGHT[1], LIGHT[2]);
   doc.roundedRect(18, y - 4, W - 36, 52, 3, 3, "FD");
 
-  // Type
   label(doc, "Type", 24, y + 2);
   const modeLabel =
     data.mode === "sealed_prediction" ? "Sealed Prediction" : "Proof of Existence";
   value(doc, modeLabel, 24, y + 8);
 
-  // Target year
   if (data.targetYear) {
     label(doc, "Target Year", 90, y + 2);
     value(doc, String(data.targetYear), 90, y + 8);
   }
 
-  // Date
   const dateStr = new Date(data.createdAt).toLocaleDateString("en-GB", {
     day: "2-digit", month: "long", year: "numeric",
   });
@@ -149,7 +153,6 @@ export function generateCertificatePdf(data: CertificateData): void {
 
   y += 22;
 
-  // Hash
   label(doc, "SHA-256 Hash", 24, y);
   y += 5;
   doc.setFontSize(7.5);
@@ -158,7 +161,6 @@ export function generateCertificatePdf(data: CertificateData): void {
   doc.text(data.hash, 24, y);
   y += 10;
 
-  // Keywords
   if (data.keywords && data.keywords.length > 0) {
     label(doc, "Topics / Keywords", 24, y - 2);
     y += 3;
@@ -171,6 +173,123 @@ export function generateCertificatePdf(data: CertificateData): void {
   }
 
   y += 8;
+
+  // ── Original Content (cleartext proof_of_existence) ──────────────────────────
+  if (data.content) {
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    setColor(doc, DARK);
+    doc.text("Original Content", 20, y);
+    y += 2;
+    rule(doc, y + 2);
+    y += 10;
+
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(LIGHT[0], LIGHT[1], LIGHT[2]);
+    const contentLines = doc.splitTextToSize(data.content, W - 56);
+    const boxH = Math.max(20, contentLines.length * 5 + 12);
+    doc.roundedRect(18, y - 4, W - 36, boxH, 2, 2, "FD");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    setColor(doc, DARK);
+    doc.text(contentLines, 24, y + 4);
+    y += boxH + 10;
+  }
+
+  // ── Encrypted Content (encrypted proof_of_existence) ─────────────────────────
+  if (data.contentEncrypted) {
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    setColor(doc, DARK);
+    doc.text("Encrypted Content", 20, y);
+    y += 2;
+    rule(doc, y + 2);
+    y += 10;
+
+    // Ciphertext box
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(LIGHT[0], LIGHT[1], LIGHT[2]);
+    const cipherLines = doc.splitTextToSize(data.contentEncrypted, W - 56);
+    const cipherBoxH = Math.max(18, Math.min(cipherLines.length, 4) * 4.5 + 12);
+    doc.roundedRect(18, y - 4, W - 36, cipherBoxH, 2, 2, "FD");
+    label(doc, "AES-256-GCM Ciphertext (base64)", 24, y + 2);
+    doc.setFontSize(6.5);
+    doc.setFont("courier", "normal");
+    setColor(doc, DARK);
+    // Show first few lines only, truncate for readability
+    const displayLines = cipherLines.slice(0, 4);
+    if (cipherLines.length > 4) displayLines.push("…");
+    doc.text(displayLines, 24, y + 8);
+    y += cipherBoxH + 6;
+
+    // Encryption key box (CRITICAL — user must keep this)
+    if (data.encryptionKey) {
+      doc.setFillColor(255, 251, 235); // amber-50
+      doc.setDrawColor(251, 191, 36);  // amber-400
+      doc.roundedRect(18, y - 4, W - 36, 26, 2, 2, "FD");
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(146, 64, 14); // amber-800
+      doc.text("AES-256-GCM DECRYPTION KEY — KEEP THIS SAFE", 24, y + 3);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.5);
+      doc.text("Without this key you cannot decrypt the content above.", 24, y + 8);
+      doc.setFont("courier", "bold");
+      doc.setFontSize(7);
+      const keyLines = doc.splitTextToSize(data.encryptionKey, W - 56);
+      doc.text(keyLines.slice(0, 2), 24, y + 14);
+      y += 32;
+    }
+    y += 4;
+  }
+
+  // ── Revealed content (post-unlock sealed_prediction) ─────────────────────────
+  if (data.revealedContent) {
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    setColor(doc, DARK);
+    doc.text("Revealed Content", 20, y);
+    y += 2;
+    rule(doc, y + 2);
+    y += 10;
+
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(LIGHT[0], LIGHT[1], LIGHT[2]);
+    const contentLines = doc.splitTextToSize(data.revealedContent, W - 56);
+    const boxH = Math.max(20, contentLines.length * 5 + 12);
+    doc.roundedRect(18, y - 4, W - 36, boxH, 2, 2, "FD");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    setColor(doc, DARK);
+    doc.text(contentLines, 24, y + 4);
+    y += boxH + 10;
+  }
+
+  // ── Permanent Storage (Arweave) ───────────────────────────────────────────────
+  if (data.arweaveTxId) {
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    setColor(doc, DARK);
+    doc.text("Permanent Storage", 20, y);
+    y += 2;
+    rule(doc, y + 2);
+    y += 10;
+
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(LIGHT[0], LIGHT[1], LIGHT[2]);
+    doc.roundedRect(18, y - 4, W - 36, 22, 2, 2, "FD");
+
+    chip(doc, "✓  Arweave — Permanently Stored", 24, y + 4, GREEN);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    setColor(doc, MID);
+    doc.text("Content anchored permanently on the Arweave blockchain. Accessible forever.", 24, y + 11);
+    doc.setFont("courier", "normal");
+    doc.setFontSize(6.5);
+    setColor(doc, BRAND_COLOR);
+    doc.text(`arweave.net/${data.arweaveTxId}`, 24, y + 17);
+    y += 30;
+  }
 
   // ── Timestamp Proofs ────────────────────────────────────────────────────────
   doc.setFontSize(12);
@@ -187,7 +306,7 @@ export function generateCertificatePdf(data: CertificateData): void {
   doc.roundedRect(18, y - 4, W - 36, 20, 2, 2, "FD");
 
   if (data.tsaToken) {
-    chip(doc, "✓  RFC 3161 TSA — Actalis", 24, y + 4, [34, 197, 94]);
+    chip(doc, "✓  RFC 3161 TSA — Actalis", 24, y + 4, GREEN);
   } else {
     chip(doc, "○  RFC 3161 TSA — Not available", 24, y + 4, [156, 163, 175]);
   }
@@ -214,10 +333,10 @@ export function generateCertificatePdf(data: CertificateData): void {
 
   const otsConfirmed = data.otsStatus === "confirmed";
   const otsColor: [number, number, number] = otsConfirmed
-    ? [34, 197, 94]
+    ? GREEN
     : data.otsStatus === "failed"
-    ? [239, 68, 68]
-    : [245, 158, 11];
+    ? RED
+    : AMBER;
 
   const otsLabel = otsConfirmed
     ? `✓  OpenTimestamps — Bitcoin Block #${data.bitcoinBlock?.toLocaleString() ?? "—"}`
@@ -237,60 +356,61 @@ export function generateCertificatePdf(data: CertificateData): void {
   );
   y += 30;
 
-  // ── Revealed content (post-unlock only) ──────────────────────────────────────
-  if (data.revealedContent) {
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    setColor(doc, DARK);
-    doc.text("Revealed Content", 20, y);
-    y += 2;
-    rule(doc, y + 2);
-    y += 10;
-
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(LIGHT[0], LIGHT[1], LIGHT[2]);
-    const contentLines = doc.splitTextToSize(data.revealedContent, W - 56);
-    const boxH = Math.max(20, contentLines.length * 5 + 12);
-    doc.roundedRect(18, y - 4, W - 36, boxH, 2, 2, "FD");
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    setColor(doc, DARK);
-    doc.text(contentLines, 24, y + 4);
-    y += boxH + 10;
-  }
-
-  // ── How to verify ───────────────────────────────────────────────────────────
+  // ── How to Verify Independently ─────────────────────────────────────────────
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
   setColor(doc, DARK);
-  doc.text("How to Verify", 20, y);
+  doc.text("How to Verify Independently", 20, y);
   y += 2;
   rule(doc, y + 2);
   y += 10;
 
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   setColor(doc, DARK);
 
-  const steps =
-    data.mode === "sealed_prediction" && !data.revealedContent
-      ? [
-          "1. Keep your .capsule file safe — it contains your encryption key.",
-          `2. In ${data.targetYear ?? "the target year"}, go to yousaidthat.org/unlock`,
-          "3. Upload your .capsule file to decrypt and reveal the original content.",
-          "4. The system will verify the hash against the registered proof.",
-          "5. Optionally, claim public authorship with your cryptographic signature.",
-        ]
-      : [
-          "1. Go to yousaidthat.org/verify",
-          "2. Enter the SHA-256 hash shown in this certificate.",
-          "3. The system returns the full cryptographic proof — blockchain anchor included.",
-          "4. Independently verify the OTS proof using opentimestamps.org/verify.",
-        ];
+  let steps: string[];
+
+  if (data.mode === "sealed_prediction" && !data.revealedContent) {
+    steps = [
+      "1. Keep your .capsule file safe — it contains your encryption key.",
+      `2. In ${data.targetYear ?? "the target year"}, go to yousaidthat.org/unlock`,
+      "3. Upload your .capsule file to decrypt and reveal the original content.",
+      "4. The system will verify the hash against the registered proof.",
+      "5. Optionally, claim public authorship with your cryptographic signature.",
+    ];
+  } else if (data.content && data.arweaveTxId) {
+    // Cleartext proof_of_existence with Arweave
+    steps = [
+      `1. Visit arweave.net/${data.arweaveTxId} — read the original text directly.`,
+      `2. Compute: echo -n "your text" | sha256sum`,
+      `   → Should match: ${data.hash.slice(0, 16)}…`,
+      "3. Verify TSA token: openssl ts -verify -in token.tsr -data hash.bin -CAfile cacert.pem",
+      "4. Verify OTS proof: ots verify proof.ots (or opentimestamps.org/verify)",
+    ];
+  } else if (data.contentEncrypted && data.encryptionKey) {
+    // Encrypted proof_of_existence with Arweave
+    steps = [
+      `1. Visit arweave.net/${data.arweaveTxId ?? "[tx_id]"} — copy the ciphertext.`,
+      "2. Decrypt using AES-256-GCM with the key printed above in this certificate.",
+      `3. Compute: echo -n "decrypted text" | sha256sum`,
+      `   → Should match: ${data.hash.slice(0, 16)}…`,
+      "4. Verify TSA token: openssl ts -verify -in token.tsr -data hash.bin -CAfile cacert.pem",
+      "5. Verify OTS proof: ots verify proof.ots (or opentimestamps.org/verify)",
+    ];
+  } else {
+    steps = [
+      "1. Go to yousaidthat.org/verify",
+      "2. Enter the SHA-256 hash shown in this certificate.",
+      "3. The system returns the full cryptographic proof — blockchain anchor included.",
+      "4. Independently verify the OTS proof using opentimestamps.org/verify.",
+    ];
+  }
 
   for (const step of steps) {
-    doc.text(step, 24, y);
-    y += 6;
+    const stepLines = doc.splitTextToSize(step, W - 48);
+    doc.text(stepLines, 24, y);
+    y += stepLines.length * 5 + 1;
   }
 
   y += 6;
@@ -298,7 +418,7 @@ export function generateCertificatePdf(data: CertificateData): void {
   // ── Disclaimer ──────────────────────────────────────────────────────────────
   doc.setFillColor(245, 245, 245);
   doc.setDrawColor(LIGHT[0], LIGHT[1], LIGHT[2]);
-  doc.roundedRect(18, y - 4, W - 36, 22, 2, 2, "FD");
+  doc.roundedRect(18, y - 4, W - 36, 24, 2, 2, "FD");
 
   doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
@@ -309,11 +429,12 @@ export function generateCertificatePdf(data: CertificateData): void {
   const disclaimer = doc.splitTextToSize(
     "This certificate is a human-readable summary of the cryptographic proof. " +
     "The authoritative proof is the .capsule file and the embedded OTS/TSA tokens. " +
-    "YouSaidThat.org does not store prediction content — only cryptographic hashes.",
+    "YouSaidThat.org stores the content hash and, for public predictions, the cleartext " +
+    "anchored permanently on Arweave. Sealed predictions are encrypted client-side — the server never sees plaintext.",
     W - 56
   );
   doc.text(disclaimer, 24, y + 8);
-  y += 28;
+  y += 30;
 
   // ── Footer ──────────────────────────────────────────────────────────────────
   rule(doc, y, LIGHT);

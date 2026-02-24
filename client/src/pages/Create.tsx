@@ -15,6 +15,7 @@ import {
   Loader2,
   FileText,
   Upload,
+  ExternalLink,
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -30,6 +31,7 @@ import { api } from "@/lib/api";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
 
 type Mode = "proof_of_existence" | "sealed_prediction";
+type Visibility = "cleartext" | "encrypted";
 
 const STEPS = ["Mode", "Prediction", "Time-Lock", "Options", "Seal"];
 
@@ -133,6 +135,7 @@ export default function Create() {
 
   // Form state
   const [mode, setMode] = useState<Mode>("sealed_prediction");
+  const [visibility, setVisibility] = useState<Visibility>("cleartext");
   const [text, setText] = useState("");
   // File-based hashing (proof_of_existence only)
   const [fileHash, setFileHash] = useState<string | null>(null);
@@ -151,6 +154,7 @@ export default function Create() {
   const [sealStep, setSealStep] = useState("");
   const [sealed, setSealed] = useState<CapsuleData | null>(null);
   const [predictionId, setPredictionId] = useState<string | null>(null);
+  const [arweaveTxId, setArweaveTxId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // OTS polling state (after sealing)
@@ -180,8 +184,8 @@ export default function Create() {
     inputTab === "file" ? fileHash !== null : text.trim().length >= 3;
 
   const canProceed = [
-    true,           // step 0: mode selection always valid
-    hasContent,     // step 1: need text or file hash
+    true,
+    hasContent,
     targetYear > currentYear,
     true,
     true,
@@ -208,7 +212,6 @@ export default function Create() {
     setError(null);
 
     try {
-      // Determine hash: from uploaded file or from text
       let hash: string;
       if (inputTab === "file" && fileHash) {
         hash = fileHash;
@@ -218,50 +221,78 @@ export default function Create() {
         hash = await hashText(text.trim());
       }
 
-      setSealStep("Generating RSA-PSS key pair…");
-      const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-
-      let encryptedContent: string | null = null;
+      let encryptedContentVal: string | null = null;
       let nonce: string | null = null;
       let encryptionKey: string | null = null;
+      let publicKeyPem: string | null = null;
+      let privateKeyPem: string | null = null;
 
-      // Only encrypt text content for sealed_prediction (not file hashes)
-      if (mode === "sealed_prediction" && inputTab === "text") {
+      if (mode === "sealed_prediction") {
+        // Sealed prediction: always encrypt + generate RSA keypair
+        setSealStep("Generating RSA-PSS key pair…");
+        const kp = await generateKeyPair();
+        publicKeyPem = kp.publicKeyPem;
+        privateKeyPem = kp.privateKeyPem;
+
+        if (inputTab === "text") {
+          setSealStep("Encrypting with AES-256-GCM…");
+          const enc = await encryptContent(text.trim());
+          encryptedContentVal = enc.encryptedContent;
+          nonce = enc.nonce;
+          encryptionKey = enc.encryptionKey;
+        }
+      } else if (mode === "proof_of_existence" && visibility === "encrypted" && inputTab === "text") {
+        // Proof of existence — encrypted sub-mode: AES encrypt only, no RSA keypair needed
         setSealStep("Encrypting with AES-256-GCM…");
         const enc = await encryptContent(text.trim());
-        encryptedContent = enc.encryptedContent;
+        encryptedContentVal = enc.encryptedContent;
         nonce = enc.nonce;
         encryptionKey = enc.encryptionKey;
       }
+      // Proof of existence — cleartext sub-mode: no crypto, content sent directly
 
       setSealStep("Registering on YouSaidThat…");
       const emailHashValue = email.trim() ? await hashEmail(email.trim()) : undefined;
-      const res = await api.registerPrediction({
+
+      const payload: Parameters<typeof api.registerPrediction>[0] = {
         hash,
         mode,
         target_year: targetYear,
         keywords: keywords.length ? keywords : undefined,
         email_hash: emailHashValue,
         is_public: isPublic,
-      });
+      };
 
+      // Attach content for proof_of_existence
+      if (mode === "proof_of_existence") {
+        if (visibility === "cleartext" && inputTab === "text") {
+          payload.content = text.trim();
+        } else if (visibility === "encrypted" && encryptedContentVal) {
+          payload.content_encrypted = encryptedContentVal;
+        }
+      }
+
+      const res = await api.registerPrediction(payload);
       setPredictionId(res.prediction_id);
+      setArweaveTxId(res.arweave_tx_id ?? null);
 
       const capsule: CapsuleData = {
         version: "1.0",
         mode,
+        visibility: mode === "proof_of_existence" ? visibility : null,
         target_year: targetYear,
         keywords,
         hash,
         public_key: publicKeyPem,
         private_key: privateKeyPem,
-        encrypted_content: encryptedContent,
+        encrypted_content: encryptedContentVal,
         nonce,
         encryption_key: encryptionKey,
         ots_proof: null,
         tsa_token: res.tsa_token,
         created_at: res.created_at ?? new Date().toISOString(),
         prediction_id: res.prediction_id,
+        arweave_tx_id: res.arweave_tx_id ?? null,
       };
 
       setSealStep("Generating capsule file…");
@@ -273,7 +304,12 @@ export default function Create() {
       setSealing(false);
       setSealStep("");
     }
-  }, [text, fileHash, inputTab, mode, targetYear, keywords, email, isPublic]);
+  }, [text, fileHash, inputTab, mode, visibility, targetYear, keywords, email, isPublic]);
+
+  // Whether current mode+visibility uses encryption
+  const isEncrypted =
+    mode === "sealed_prediction" ||
+    (mode === "proof_of_existence" && visibility === "encrypted");
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] text-[#111111] flex flex-col font-sans">
@@ -323,51 +359,38 @@ export default function Create() {
                   Choose how your prediction is stored. Both modes anchor your hash to the Bitcoin blockchain.
                 </p>
                 <div className="space-y-3">
-                  {[
-                    {
-                      value: "proof_of_existence" as const,
-                      icon: Eye,
-                      title: "Proof of Existence",
-                      badge: "Public-ready",
-                      desc: "Your text is hashed and timestamped. No encryption — content is visible when you choose to share it. Best for public claims and verifiable statements.",
-                      detail: ["SHA-256 hash", "Bitcoin OTS anchor", "RFC 3161 TSA", "No encryption"],
-                    },
-                    {
-                      value: "sealed_prediction" as const,
-                      icon: Lock,
-                      title: "Sealed Prediction",
-                      badge: "Private",
-                      desc: "Your text is encrypted locally with AES-256-GCM before hashing. Only you can decrypt it — the server never sees your content or keys.",
-                      detail: ["AES-256-GCM encrypted", "RSA-PSS keypair", "Bitcoin OTS anchor", "Zero-knowledge"],
-                    },
-                  ].map(({ value, icon: Icon, title, badge, desc, detail }) => (
+                  {/* Proof of Existence */}
+                  <div
+                    className={`rounded-2xl border transition-all ${
+                      mode === "proof_of_existence"
+                        ? "border-[#6366F1] bg-[#6366F1]/5 shadow-sm"
+                        : "border-[#E5E5E5] bg-white hover:border-[#CCCCCC]"
+                    }`}
+                  >
                     <button
-                      key={value}
-                      onClick={() => setMode(value)}
-                      className={`w-full text-left p-5 rounded-2xl border transition-all ${
-                        mode === value
-                          ? "border-[#6366F1] bg-[#6366F1]/5 shadow-sm"
-                          : "border-[#E5E5E5] bg-white hover:border-[#CCCCCC]"
-                      }`}
+                      onClick={() => setMode("proof_of_existence")}
+                      className="w-full text-left p-5"
                     >
                       <div className="flex items-start gap-3">
                         <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
-                          mode === value ? "bg-[#6366F1]/10" : "bg-[#F5F5F5]"
+                          mode === "proof_of_existence" ? "bg-[#6366F1]/10" : "bg-[#F5F5F5]"
                         }`}>
-                          <Icon className={`w-4 h-4 ${mode === value ? "text-[#6366F1]" : "text-[#999]"}`} />
+                          <Eye className={`w-4 h-4 ${mode === "proof_of_existence" ? "text-[#6366F1]" : "text-[#999]"}`} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <p className="text-sm font-semibold">{title}</p>
+                            <p className="text-sm font-semibold">Proof of Existence</p>
                             <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
-                              mode === value
+                              mode === "proof_of_existence"
                                 ? "bg-[#6366F1]/10 text-[#6366F1]"
                                 : "bg-[#F5F5F5] text-[#999]"
-                            }`}>{badge}</span>
+                            }`}>Public-ready</span>
                           </div>
-                          <p className="text-[11px] text-[#666] leading-relaxed mb-2">{desc}</p>
+                          <p className="text-[11px] text-[#666] leading-relaxed mb-2">
+                            Your text is hashed and timestamped. Content is anchored to Arweave permanently.
+                          </p>
                           <div className="flex flex-wrap gap-1">
-                            {detail.map((d) => (
+                            {["SHA-256 hash", "Bitcoin OTS anchor", "RFC 3161 TSA", "Arweave permanent storage"].map((d) => (
                               <span key={d} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#F5F5F5] text-[#888]">
                                 {d}
                               </span>
@@ -375,15 +398,103 @@ export default function Create() {
                           </div>
                         </div>
                         <div className={`w-4 h-4 rounded-full border-2 shrink-0 mt-1 transition-colors ${
-                          mode === value ? "border-[#6366F1] bg-[#6366F1]" : "border-[#DDD] bg-white"
+                          mode === "proof_of_existence" ? "border-[#6366F1] bg-[#6366F1]" : "border-[#DDD] bg-white"
                         }`}>
-                          {mode === value && (
+                          {mode === "proof_of_existence" && (
                             <div className="w-1.5 h-1.5 bg-white rounded-full m-auto mt-[3px]" />
                           )}
                         </div>
                       </div>
                     </button>
-                  ))}
+
+                    {/* Sub-mode selection — only shown when proof_of_existence is selected */}
+                    {mode === "proof_of_existence" && (
+                      <div className="px-5 pb-5">
+                        <div className="border-t border-[#E5E5E5]/60 pt-4">
+                          <p className="text-[10px] font-mono uppercase tracking-wider text-[#999] mb-3">
+                            Visibility sub-mode
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => setVisibility("cleartext")}
+                              className={`text-left p-3 rounded-xl border transition-all ${
+                                visibility === "cleartext"
+                                  ? "border-[#6366F1] bg-[#6366F1]/5"
+                                  : "border-[#E5E5E5] bg-white hover:border-[#CCC]"
+                              }`}
+                            >
+                              <p className={`text-xs font-semibold mb-1 ${visibility === "cleartext" ? "text-[#6366F1]" : "text-[#111]"}`}>
+                                Cleartext
+                              </p>
+                              <p className="text-[10px] text-[#666] leading-relaxed">
+                                Text visible on community feed. Verifiable by anyone.
+                              </p>
+                            </button>
+                            <button
+                              onClick={() => setVisibility("encrypted")}
+                              className={`text-left p-3 rounded-xl border transition-all ${
+                                visibility === "encrypted"
+                                  ? "border-[#6366F1] bg-[#6366F1]/5"
+                                  : "border-[#E5E5E5] bg-white hover:border-[#CCC]"
+                              }`}
+                            >
+                              <p className={`text-xs font-semibold mb-1 ${visibility === "encrypted" ? "text-[#6366F1]" : "text-[#111]"}`}>
+                                Encrypted
+                              </p>
+                              <p className="text-[10px] text-[#666] leading-relaxed">
+                                AES-256-GCM encrypted. Key stored in your PDF/capsule.
+                              </p>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Sealed Prediction */}
+                  <button
+                    onClick={() => setMode("sealed_prediction")}
+                    className={`w-full text-left p-5 rounded-2xl border transition-all ${
+                      mode === "sealed_prediction"
+                        ? "border-[#6366F1] bg-[#6366F1]/5 shadow-sm"
+                        : "border-[#E5E5E5] bg-white hover:border-[#CCCCCC]"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                        mode === "sealed_prediction" ? "bg-[#6366F1]/10" : "bg-[#F5F5F5]"
+                      }`}>
+                        <Lock className={`w-4 h-4 ${mode === "sealed_prediction" ? "text-[#6366F1]" : "text-[#999]"}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-sm font-semibold">Sealed Prediction</p>
+                          <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                            mode === "sealed_prediction"
+                              ? "bg-[#6366F1]/10 text-[#6366F1]"
+                              : "bg-[#F5F5F5] text-[#999]"
+                          }`}>Private</span>
+                        </div>
+                        <p className="text-[11px] text-[#666] leading-relaxed mb-2">
+                          Your text is encrypted locally with AES-256-GCM before hashing. Only you can decrypt it.
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {["AES-256-GCM encrypted", "RSA-PSS keypair", "Bitcoin OTS anchor", "Zero-knowledge"].map((d) => (
+                            <span key={d} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#F5F5F5] text-[#888]">
+                              {d}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 mt-1 transition-colors ${
+                        mode === "sealed_prediction" ? "border-[#6366F1] bg-[#6366F1]" : "border-[#DDD] bg-white"
+                      }`}>
+                        {mode === "sealed_prediction" && (
+                          <div className="w-1.5 h-1.5 bg-white rounded-full m-auto mt-[3px]" />
+                        )}
+                      </div>
+                    </div>
+                  </button>
                 </div>
               </motion.div>
             )}
@@ -400,13 +511,13 @@ export default function Create() {
               >
                 {/* Mode badge */}
                 <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-mono ${
-                  mode === "sealed_prediction"
+                  isEncrypted
                     ? "bg-[#6366F1]/5 border border-[#6366F1]/20 text-[#6366F1]"
                     : "bg-[#F5F5F5] border border-[#E5E5E5] text-[#666]"
                 }`}>
-                  {mode === "sealed_prediction"
-                    ? <><Lock className="w-3 h-3" /> Text will be encrypted locally — server never sees it</>
-                    : <><FileText className="w-3 h-3" /> Content hash will be timestamped — file stays with you</>
+                  {isEncrypted
+                    ? <><Lock className="w-3 h-3" /> Text will be encrypted locally — server never sees plaintext</>
+                    : <><FileText className="w-3 h-3" /> Content will be stored publicly on Arweave</>
                   }
                 </div>
 
@@ -440,11 +551,12 @@ export default function Create() {
                       onChange={(e) => setText(e.target.value)}
                       placeholder="Write your prediction about the future…"
                       rows={6}
+                      maxLength={10000}
                       className="w-full rounded-2xl border border-[#E5E5E5] bg-white p-4 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] resize-none transition-all leading-relaxed"
                     />
                     <div className="flex justify-end mt-1">
                       <span className="text-[10px] font-mono text-[#CCC]">
-                        {text.length} chars
+                        {text.length} / 10,000
                       </span>
                     </div>
                   </div>
@@ -605,8 +717,9 @@ export default function Create() {
                           Make prediction public
                         </p>
                         <p className="text-[11px] text-[#666]">
-                          Shows hash preview + year + keywords on the public
-                          feed. Content stays private.
+                          {mode === "proof_of_existence" && visibility === "cleartext"
+                            ? "Shows full text on community feed. Verifiable by anyone."
+                            : "Shows hash preview + year + keywords on the public feed."}
                         </p>
                       </div>
                     </div>
@@ -649,7 +762,9 @@ export default function Create() {
                             Mode
                           </p>
                           <p className="font-medium">
-                            {mode === "sealed_prediction" ? "Sealed Prediction" : "Proof of Existence"}
+                            {mode === "sealed_prediction"
+                              ? "Sealed Prediction"
+                              : `Proof of Existence (${visibility})`}
                           </p>
                         </div>
                         <div>
@@ -705,6 +820,9 @@ export default function Create() {
                           <><strong>Your .capsule file is your only key.</strong>{" "}
                           Store it safely — it contains your encryption key and private key.
                           If you lose it, your prediction cannot be decrypted.</>
+                        ) : visibility === "encrypted" ? (
+                          <><strong>Keep your .capsule file safe.</strong>{" "}
+                          It contains the AES-256 decryption key. Without it you cannot recover the plaintext.</>
                         ) : (
                           <><strong>Keep your .capsule file safe.</strong>{" "}
                           It contains the hash and proof tokens needed to verify authorship later.</>
@@ -783,6 +901,29 @@ export default function Create() {
                             TSA Signed
                           </span>
                         </div>
+                        {arweaveTxId ? (
+                          <div className="col-span-2 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-100">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                            <span className="text-[10px] font-mono text-indigo-700 uppercase">
+                              Arweave Stored
+                            </span>
+                            <a
+                              href={`https://arweave.net/${arweaveTxId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-auto"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-indigo-400 hover:text-indigo-600" />
+                            </a>
+                          </div>
+                        ) : mode === "proof_of_existence" ? (
+                          <div className="col-span-2 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+                            <Clock className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                            <span className="text-[10px] font-mono text-amber-700 uppercase">
+                              Arweave upload in progress…
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 
@@ -820,6 +961,15 @@ export default function Create() {
                           tsaToken: sealed.tsa_token,
                           otsStatus,
                           bitcoinBlock: otsBitcoinBlock,
+                          // Proof of existence content fields
+                          content: sealed.visibility === "cleartext" && mode === "proof_of_existence"
+                            ? (inputTab === "text" ? text.trim() : undefined)
+                            : undefined,
+                          contentEncrypted: sealed.visibility === "encrypted"
+                            ? (sealed.encrypted_content ?? undefined)
+                            : undefined,
+                          encryptionKey: sealed.encryption_key ?? undefined,
+                          arweaveTxId: arweaveTxId ?? undefined,
                         })
                       }
                       className="w-full h-12 rounded-full border border-[#6366F1]/30 bg-[#6366F1]/5 text-[#6366F1] text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#6366F1]/10 transition-colors"

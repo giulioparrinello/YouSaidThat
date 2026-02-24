@@ -14,6 +14,24 @@ async function req<T>(
   return data as T;
 }
 
+async function adminReq<T>(
+  path: string,
+  adminSecret: string,
+  options?: RequestInit
+): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-secret": adminSecret,
+    },
+    ...options,
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+  return data as T;
+}
+
 // ─── Types mirroring server responses ────────────────────────────────────────
 
 export interface RegisterResponse {
@@ -23,6 +41,8 @@ export interface RegisterResponse {
   ots_status: string;
   tsa_token: string | null;
   created_at: string;
+  arweave_tx_id: string | null;
+  arweave_status: string;
 }
 
 export interface PublicPrediction {
@@ -33,6 +53,9 @@ export interface PublicPrediction {
   mode: string;
   ots_status: string;
   created_at: string;
+  content?: string | null;
+  arweave_tx_id?: string | null;
+  arweave_status?: string;
 }
 
 export interface PublicPredictionsResponse {
@@ -55,6 +78,9 @@ export interface VerifyResponse {
   timestamp_utc?: string;
   tsa_token?: string | null;
   ots_proof?: string | null;
+  content?: string | null;
+  arweave_tx_id?: string | null;
+  arweave_status?: string;
 }
 
 export interface OtsStatusResponse {
@@ -62,6 +88,25 @@ export interface OtsStatusResponse {
   ots_status: string;
   bitcoin_block: number | null;
   ots_proof: string | null;
+}
+
+export interface AdminStatsResponse {
+  total: number;
+  otsByStatus: Record<string, number>;
+  arweaveByStatus: Record<string, number>;
+  arweaveBalance: { ar: string; winston: string };
+}
+
+export interface AdminPendingArweaveResponse {
+  predictions: Array<{
+    id: string;
+    hash: string;
+    mode: string;
+    target_year: number;
+    arweave_status: string;
+    created_at: string;
+  }>;
+  total: number;
 }
 
 export interface ClaimResponse {
@@ -101,6 +146,8 @@ export const api = {
     keywords?: string[];
     email_hash?: string;
     is_public: boolean;
+    content?: string;
+    content_encrypted?: string;
   }) =>
     req<RegisterResponse>("/api/predictions/register", {
       method: "POST",
@@ -145,4 +192,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // Admin API (requires adminSecret)
+  admin: {
+    getStats: (secret: string) =>
+      adminReq<AdminStatsResponse>("/api/admin/stats", secret),
+
+    getArweaveBalance: (secret: string) =>
+      adminReq<{ ar: string; winston: string }>("/api/admin/arweave-balance", secret),
+
+    getPendingArweave: (secret: string) =>
+      adminReq<AdminPendingArweaveResponse>("/api/admin/pending-arweave", secret),
+
+    retryArweave: (secret: string, id: string) =>
+      adminReq<{ ok: boolean; arweave_tx_id?: string; message?: string }>(
+        `/api/admin/retry-arweave/${id}`,
+        secret,
+        { method: "POST" }
+      ),
+  },
 };

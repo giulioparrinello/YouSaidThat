@@ -3,7 +3,6 @@ import { pgTable, text, integer, boolean, timestamp, uuid } from "drizzle-orm/pg
 import { z } from "zod";
 
 // ─── predictions ──────────────────────────────────────────────────────────────
-// Never stores plaintext content. Only hash + metadata.
 export const predictions = pgTable("predictions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   hash: text("hash").notNull().unique(),           // SHA-256, 64 hex chars
@@ -17,6 +16,11 @@ export const predictions = pgTable("predictions", {
   timestamp_utc: timestamp("timestamp_utc", { withTimezone: true }).defaultNow(),
   is_public: boolean("is_public").notNull().default(false),
   created_at: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  // Proof of existence content fields
+  content: text("content"),                         // cleartext for proof_of_existence cleartext sub-mode
+  content_encrypted: text("content_encrypted"),     // ciphertext for encrypted sub-mode
+  arweave_tx_id: text("arweave_tx_id"),            // TX ID from Arweave
+  arweave_status: text("arweave_status").notNull().default("none"), // none | pending | confirmed | failed
 });
 
 // ─── attestations ─────────────────────────────────────────────────────────────
@@ -82,6 +86,9 @@ export const registerPredictionSchema = z.object({
     .optional(),
   email_hash: z.string().regex(/^[a-f0-9]{64}$/, "Must be 64 lowercase hex chars").optional(),
   is_public: z.boolean().default(false),
+  // Proof of existence content — cleartext or encrypted
+  content: z.string().max(10000).optional(),
+  content_encrypted: z.string().optional(),
 });
 
 export const claimPredictionSchema = z.object({

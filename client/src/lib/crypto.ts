@@ -5,19 +5,21 @@
 export interface CapsuleData {
   version: "1.0";
   mode: "proof_of_existence" | "sealed_prediction";
+  /** Sub-mode for proof_of_existence: cleartext (public) or encrypted (private) */
+  visibility: "cleartext" | "encrypted" | null;
   target_year: number;
   keywords: string[];
   /** SHA-256 of plaintext, 64 hex chars */
   hash: string;
-  /** RSA-PSS 2048-bit public key, PEM. Null for proof_of_existence. */
+  /** RSA-PSS 2048-bit public key, PEM. Null for proof_of_existence cleartext. */
   public_key: string | null;
-  /** RSA-PSS 2048-bit private key, PEM — KEEP SAFE, never send to server. Null for proof_of_existence. */
+  /** RSA-PSS 2048-bit private key, PEM — KEEP SAFE, never send to server. Null for proof_of_existence cleartext. */
   private_key: string | null;
-  /** AES-256-GCM ciphertext, base64. Null for proof_of_existence. */
+  /** AES-256-GCM ciphertext, base64. Null for cleartext modes. */
   encrypted_content: string | null;
-  /** AES-256-GCM nonce, 12 bytes, base64. Null for proof_of_existence. */
+  /** AES-256-GCM nonce, 12 bytes, base64. Null for cleartext modes. */
   nonce: string | null;
-  /** AES-256-GCM encryption key, 32 bytes, base64. Null for proof_of_existence. */
+  /** AES-256-GCM encryption key, 32 bytes, base64. Null for cleartext modes. */
   encryption_key: string | null;
   /** OTS proof blob, base64. Null until confirmed. */
   ots_proof: string | null;
@@ -26,6 +28,8 @@ export interface CapsuleData {
   created_at: string;
   /** UUID assigned by the backend after registration. */
   prediction_id: string | null;
+  /** Arweave TX ID — available after permanent storage upload completes. */
+  arweave_tx_id: string | null;
 }
 
 // ─── SHA-256 ──────────────────────────────────────────────────────────────────

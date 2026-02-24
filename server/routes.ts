@@ -5,6 +5,7 @@ import DOMPurify from "isomorphic-dompurify";
 import { storage } from "./storage";
 import { requestTsaToken } from "./services/tsa";
 import { submitToOts } from "./services/ots";
+import { uploadContent, getArweaveBalance } from "./services/arweave";
 import {
   registerPredictionSchema,
   claimPredictionSchema,
@@ -83,7 +84,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: zodMsg(parsed.error) });
       }
 
-      const { hash, mode, target_year, keywords, email_hash, is_public } =
+      const { hash, mode, target_year, keywords, email_hash, is_public, content, content_encrypted } =
         parsed.data;
 
       // Idempotent: if this hash was already registered, return existing record
@@ -96,6 +97,8 @@ export async function registerRoutes(
           ots_status: existing.ots_status,
           tsa_token: existing.tsa_token,
           created_at: existing.created_at,
+          arweave_tx_id: existing.arweave_tx_id,
+          arweave_status: existing.arweave_status,
         });
       }
 
@@ -112,6 +115,9 @@ export async function registerRoutes(
           }
         : undefined;
 
+      // Determine arweave_status: only attempt upload if there's content to store
+      const hasArweaveContent = !!(content || content_encrypted);
+
       const prediction = await storage.registerPredictionWithEmail(
         {
           hash,
@@ -122,6 +128,9 @@ export async function registerRoutes(
           ots_proof: null,
           tsa_token: tsaToken,
           is_public,
+          content: content ?? null,
+          content_encrypted: content_encrypted ?? null,
+          arweave_status: hasArweaveContent ? "pending" : "none",
         },
         emailQueueData
       );
@@ -138,6 +147,26 @@ export async function registerRoutes(
         })
         .catch((err) => console.error("[routes] OTS submission error:", err));
 
+      // Arweave upload — async fire-and-forget, only if content present
+      if (hasArweaveContent) {
+        const uploadPayload = content ?? content_encrypted!;
+        uploadContent(uploadPayload, {
+          hash,
+          mode,
+          targetYear: String(target_year),
+        })
+          .then(async (txId) => {
+            if (txId) {
+              await storage.updateArweaveStatus(prediction.id, {
+                arweave_tx_id: txId,
+                arweave_status: "confirmed",
+              });
+            }
+            // If null, stays 'pending' and will be retried by cron
+          })
+          .catch((err) => console.error("[routes] Arweave upload error:", err));
+      }
+
       return res.status(201).json({
         prediction_id: prediction.id,
         hash: prediction.hash,
@@ -145,6 +174,8 @@ export async function registerRoutes(
         ots_status: prediction.ots_status,
         tsa_token: prediction.tsa_token,
         created_at: prediction.created_at,
+        arweave_tx_id: prediction.arweave_tx_id,
+        arweave_status: prediction.arweave_status,
       });
     }
   );
@@ -181,6 +212,9 @@ export async function registerRoutes(
         mode: p.mode,
         ots_status: p.ots_status,
         created_at: p.created_at,
+        content: p.content ?? null,
+        arweave_tx_id: p.arweave_tx_id ?? null,
+        arweave_status: p.arweave_status,
       }));
 
       return res.json({ predictions: sanitized, total, page, limit });
@@ -218,6 +252,9 @@ export async function registerRoutes(
         timestamp_utc: prediction.timestamp_utc,
         tsa_token: prediction.tsa_token,
         ots_proof: prediction.ots_proof,
+        content: prediction.content ?? null,
+        arweave_tx_id: prediction.arweave_tx_id ?? null,
+        arweave_status: prediction.arweave_status,
       });
     }
   );
@@ -379,6 +416,118 @@ export async function registerRoutes(
       });
     }
   );
+
+  // ─── Admin endpoints (protected by ADMIN_SECRET header) ─────────────────────
+
+  function checkAdminSecret(req: Request, res: Response): boolean {
+    const secret = process.env.ADMIN_SECRET;
+    if (!secret) {
+      res.status(503).json({ error: "Admin not configured (ADMIN_SECRET not set)" });
+      return false;
+    }
+    if (req.headers["x-admin-secret"] !== secret) {
+      res.status(401).json({ error: "Unauthorized" });
+      return false;
+    }
+    return true;
+  }
+
+  // GET /api/admin/stats
+  app.get("/api/admin/stats", getLimiter, async (req: Request, res: Response) => {
+    if (!checkAdminSecret(req, res)) return;
+    try {
+      const stats = await storage.getAdminStats();
+      const balance = await getArweaveBalance();
+      return res.json({ ...stats, arweaveBalance: balance });
+    } catch (err) {
+      console.error("[admin/stats] Error:", err);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // GET /api/admin/arweave-balance
+  app.get("/api/admin/arweave-balance", getLimiter, async (req: Request, res: Response) => {
+    if (!checkAdminSecret(req, res)) return;
+    try {
+      const balance = await getArweaveBalance();
+      return res.json(balance);
+    } catch (err) {
+      console.error("[admin/arweave-balance] Error:", err);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // POST /api/admin/retry-arweave/:id
+  app.post("/api/admin/retry-arweave/:id", getLimiter, async (req: Request, res: Response) => {
+    if (!checkAdminSecret(req, res)) return;
+    try {
+      const prediction = await storage.getPredictionById(req.params.id as string);
+      if (!prediction) {
+        return res.status(404).json({ error: "Prediction not found" });
+      }
+
+      const content = prediction.content ?? prediction.content_encrypted;
+      if (!content) {
+        return res.status(400).json({ error: "No content to upload for this prediction" });
+      }
+
+      const txId = await uploadContent(content, {
+        hash: prediction.hash,
+        mode: prediction.mode,
+        targetYear: String(prediction.target_year),
+      });
+
+      if (txId) {
+        await storage.updateArweaveStatus(prediction.id, {
+          arweave_tx_id: txId,
+          arweave_status: "confirmed",
+        });
+        return res.json({ ok: true, arweave_tx_id: txId });
+      } else {
+        return res.json({ ok: false, message: "Upload failed — will retry via cron" });
+      }
+    } catch (err) {
+      console.error("[admin/retry-arweave] Error:", err);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // GET /api/admin/pending-arweave
+  app.get("/api/admin/pending-arweave", getLimiter, async (req: Request, res: Response) => {
+    if (!checkAdminSecret(req, res)) return;
+    try {
+      const pending = await storage.getPendingArweaveUploads();
+      const sanitized = pending.map((p) => ({
+        id: p.id,
+        hash: p.hash.slice(0, 8) + "…",
+        mode: p.mode,
+        target_year: p.target_year,
+        arweave_status: p.arweave_status,
+        created_at: p.created_at,
+      }));
+      return res.json({ predictions: sanitized, total: sanitized.length });
+    } catch (err) {
+      console.error("[admin/pending-arweave] Error:", err);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // GET /api/cron/arweave-retry
+  // Called by Vercel Cron every hour. Protected by CRON_SECRET.
+  app.get("/api/cron/arweave-retry", async (req: Request, res: Response) => {
+    const secret = process.env.CRON_SECRET;
+    if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const { retryPendingUploads } = await import("./services/arweave");
+      const succeeded = await retryPendingUploads();
+      return res.json({ ok: true, succeeded });
+    } catch (err) {
+      console.error("[cron/arweave-retry] Error:", err);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
 
   // GET /api/cron/ots-poll
   // Called by Vercel Cron every 6h. Protected by CRON_SECRET.

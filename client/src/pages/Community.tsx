@@ -12,6 +12,7 @@ import {
   X,
   Bitcoin,
   Users,
+  ExternalLink,
 } from "lucide-react";
 import { Link } from "wouter";
 import { api, type PublicPrediction } from "@/lib/api";
@@ -81,14 +82,25 @@ function PredictionCard({
         </span>
       </div>
 
-      {/* Hash preview */}
-      <div className="bg-[#FAFAFA] border border-[#F0F0F0] rounded-xl px-3 py-2">
-        <p className="text-[9px] font-mono text-[#BBB] uppercase mb-0.5">SHA-256</p>
-        <p className="text-[11px] font-mono text-[#444] tracking-wide">
-          {prediction.hash_preview}
-          <span className="text-[#CCC]">████████████████████████████████████████████████████████</span>
-        </p>
-      </div>
+      {/* Content preview or hash preview */}
+      {prediction.content ? (
+        <div className="bg-[#FAFAFA] border border-[#F0F0F0] rounded-xl px-3 py-2.5">
+          <p className="text-[9px] font-mono text-[#BBB] uppercase mb-1">Prediction</p>
+          <p className="text-[12px] text-[#333] leading-relaxed">
+            {prediction.content.length > 150
+              ? prediction.content.slice(0, 150) + "…"
+              : prediction.content}
+          </p>
+        </div>
+      ) : (
+        <div className="bg-[#FAFAFA] border border-[#F0F0F0] rounded-xl px-3 py-2">
+          <p className="text-[9px] font-mono text-[#BBB] uppercase mb-0.5">SHA-256</p>
+          <p className="text-[11px] font-mono text-[#444] tracking-wide">
+            {prediction.hash_preview}
+            <span className="text-[#CCC]">████████████████████████████████████████████████████████</span>
+          </p>
+        </div>
+      )}
 
       {/* Keywords */}
       {prediction.keywords && prediction.keywords.length > 0 && (
@@ -104,8 +116,8 @@ function PredictionCard({
         </div>
       )}
 
-      {/* OTS status */}
-      <div className="flex items-center gap-2 mt-auto pt-2 border-t border-[#F5F5F5]">
+      {/* OTS status + Arweave link */}
+      <div className="flex items-center gap-2 mt-auto pt-2 border-t border-[#F5F5F5] flex-wrap">
         {isConfirmed ? (
           <span className="flex items-center gap-1.5 text-[9px] font-mono text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">
             <CheckCircle2 className="w-2.5 h-2.5" />
@@ -121,6 +133,18 @@ function PredictionCard({
             <Clock className="w-2.5 h-2.5 animate-pulse" />
             Pending anchor
           </span>
+        )}
+        {prediction.arweave_tx_id && (
+          <a
+            href={`https://arweave.net/${prediction.arweave_tx_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-[9px] font-mono text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full hover:bg-indigo-100 transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="w-2.5 h-2.5" />
+            Arweave
+          </a>
         )}
       </div>
     </motion.div>
