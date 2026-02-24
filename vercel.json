@@ -11,15 +11,5 @@
       "src": "/(.*)",
       "dest": "dist/index.cjs"
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron/ots-poll",
-      "schedule": "0 */6 * * *"
-    },
-    {
-      "path": "/api/cron/arweave-retry",
-      "schedule": "0 * * * *"
-    }
   ]
 }
