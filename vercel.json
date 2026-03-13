@@ -1,19 +1,13 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "dist/index.cjs",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["dist/public/**"]
-      }
+  "buildCommand": "tsx script/build.ts",
+  "functions": {
+    "api/server.js": {
+      "includeFiles": "dist/public/**"
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "dist/index.cjs"
-    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/server" }
   ],
   "headers": [
     {
