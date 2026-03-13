@@ -5,5 +5,7 @@
     "moduleResolution": "node",
     "allowImportingTsExtensions": false,
     "noEmit": false
-  }
+  },
+  "include": ["**/*.ts", "../shared/**/*.ts"],
+  "exclude": ["../node_modules", "../client", "../vite.config.ts", "../vite-plugin-meta-images.ts"]
 }
