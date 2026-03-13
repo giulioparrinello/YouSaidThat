@@ -21,9 +21,11 @@ import { Link } from "wouter";
 import {
   hashText,
   hashBinary,
-  hashEmail,
   generateKeyPair,
   encryptContent,
+  tlockEncrypt,
+  drandRoundAt,
+  DRAND_CHAIN_HASH,
   downloadCapsule,
   type CapsuleData,
 } from "@/lib/crypto";
@@ -36,7 +38,20 @@ type Visibility = "cleartext" | "encrypted";
 const STEPS = ["Mode", "Prediction", "Time-Lock", "Options", "Seal"];
 
 const currentYear = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: 10 }, (_, i) => currentYear + 1 + i);
+
+// Minimum datetime-local value: 1 hour from now
+function minDatetimeLocal(): string {
+  const d = new Date(Date.now() + 60 * 60 * 1000);
+  // datetime-local format: YYYY-MM-DDTHH:MM
+  return d.toISOString().slice(0, 16);
+}
+
+// Maximum datetime-local value: 50 years from now
+function maxDatetimeLocal(): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 50);
+  return d.toISOString().slice(0, 16);
+}
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 function StepBar({ current }: { current: number }) {
@@ -144,8 +159,19 @@ export default function Create() {
   const [inputTab, setInputTab] = useState<"text" | "file">("text");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [targetYear, setTargetYear] = useState<number>(currentYear + 1);
+  // PoE: optional target datetime (null = no gate)
+  const [poeDatetime, setPoeDatetime] = useState<string>("");
+  const [poeHasDate, setPoeHasDate] = useState(false);
+  // Sealed: required target datetime
+  const [targetDatetime, setTargetDatetime] = useState<string>("");
+  // Legacy: kept for capsule compat (derived from datetime)
+  const targetYear = (() => {
+    if (mode === "sealed_prediction" && targetDatetime) return new Date(targetDatetime).getFullYear();
+    if (mode === "proof_of_existence" && poeHasDate && poeDatetime) return new Date(poeDatetime).getFullYear();
+    return null;
+  })();
   const [keywords, setKeywords] = useState<string[]>([]);
+  const [authorName, setAuthorName] = useState("");
   const [email, setEmail] = useState("");
   const [isPublic, setIsPublic] = useState(false);
 
@@ -183,10 +209,15 @@ export default function Create() {
   const hasContent =
     inputTab === "file" ? fileHash !== null : text.trim().length >= 3;
 
+  const step2ok =
+    mode === "sealed_prediction"
+      ? targetDatetime !== "" && new Date(targetDatetime) > new Date()
+      : true; // PoE: date is optional
+
   const canProceed = [
     true,
     hasContent,
-    targetYear > currentYear,
+    step2ok,
     true,
     true,
   ][step];
@@ -226,23 +257,25 @@ export default function Create() {
       let encryptionKey: string | null = null;
       let publicKeyPem: string | null = null;
       let privateKeyPem: string | null = null;
+      let tlockCiphertext: string | null = null;
+      let drandRound: number | null = null;
 
       if (mode === "sealed_prediction") {
-        // Sealed prediction: always encrypt + generate RSA keypair
+        // v2: drand timelock encryption + RSA keypair for attestation
         setSealStep("Generating RSA-PSS key pair…");
         const kp = await generateKeyPair();
         publicKeyPem = kp.publicKeyPem;
         privateKeyPem = kp.privateKeyPem;
 
-        if (inputTab === "text") {
-          setSealStep("Encrypting with AES-256-GCM…");
-          const enc = await encryptContent(text.trim());
-          encryptedContentVal = enc.encryptedContent;
-          nonce = enc.nonce;
-          encryptionKey = enc.encryptionKey;
+        if (inputTab === "text" && targetDatetime) {
+          setSealStep("Encrypting with drand timelock…");
+          const targetMs = new Date(targetDatetime).getTime();
+          const tlock = await tlockEncrypt(text.trim(), targetMs);
+          tlockCiphertext = tlock.ciphertext;
+          drandRound = tlock.round;
         }
       } else if (mode === "proof_of_existence" && visibility === "encrypted" && inputTab === "text") {
-        // Proof of existence — encrypted sub-mode: AES encrypt only, no RSA keypair needed
+        // Proof of existence — encrypted sub-mode: AES encrypt only
         setSealStep("Encrypting with AES-256-GCM…");
         const enc = await encryptContent(text.trim());
         encryptedContentVal = enc.encryptedContent;
@@ -252,16 +285,35 @@ export default function Create() {
       // Proof of existence — cleartext sub-mode: no crypto, content sent directly
 
       setSealStep("Registering on YouSaidThat…");
-      const emailHashValue = email.trim() ? await hashEmail(email.trim()) : undefined;
+
+      // Determine effective datetime string
+      const effectiveDatetime =
+        mode === "sealed_prediction" && targetDatetime
+          ? new Date(targetDatetime).toISOString()
+          : mode === "proof_of_existence" && poeHasDate && poeDatetime
+          ? new Date(poeDatetime).toISOString()
+          : null;
 
       const payload: Parameters<typeof api.registerPrediction>[0] = {
         hash,
         mode,
-        target_year: targetYear,
+        target_year: targetYear ?? undefined,
+        author_name: authorName.trim() || undefined,
         keywords: keywords.length ? keywords : undefined,
-        email_hash: emailHashValue,
+        email: email.trim() ? email.trim().toLowerCase() : undefined,
         is_public: isPublic,
       };
+
+      // tlock fields for sealed_prediction v2
+      if (mode === "sealed_prediction" && drandRound && effectiveDatetime) {
+        payload.drand_round = drandRound;
+        payload.target_datetime = effectiveDatetime;
+      }
+
+      // PoE with date
+      if (mode === "proof_of_existence" && effectiveDatetime) {
+        payload.target_datetime = effectiveDatetime;
+      }
 
       // Attach content for proof_of_existence
       if (mode === "proof_of_existence") {
@@ -277,10 +329,15 @@ export default function Create() {
       setArweaveTxId(res.arweave_tx_id ?? null);
 
       const capsule: CapsuleData = {
-        version: "1.0",
+        version: "2.0",
         mode,
         visibility: mode === "proof_of_existence" ? visibility : null,
         target_year: targetYear,
+        target_datetime: effectiveDatetime,
+        lock_mode: mode === "sealed_prediction" ? "tlock" : undefined,
+        tlock_ciphertext: tlockCiphertext,
+        drand_round: drandRound,
+        drand_chain_hash: mode === "sealed_prediction" ? DRAND_CHAIN_HASH : null,
         keywords,
         hash,
         public_key: publicKeyPem,
@@ -304,7 +361,7 @@ export default function Create() {
       setSealing(false);
       setSealStep("");
     }
-  }, [text, fileHash, inputTab, mode, visibility, targetYear, keywords, email, isPublic]);
+  }, [text, fileHash, inputTab, mode, visibility, targetYear, targetDatetime, poeDatetime, poeHasDate, keywords, authorName, email, isPublic]);
 
   // Whether current mode+visibility uses encryption
   const isEncrypted =
@@ -476,10 +533,10 @@ export default function Create() {
                           }`}>Private</span>
                         </div>
                         <p className="text-[11px] text-[#666] leading-relaxed mb-2">
-                          Your text is encrypted locally with AES-256-GCM before hashing. Only you can decrypt it.
+                          Encrypted with drand timelock (IBE/BLS12-381). Mathematically impossible to decrypt before your chosen date.
                         </p>
                         <div className="flex flex-wrap gap-1">
-                          {["AES-256-GCM encrypted", "RSA-PSS keypair", "Bitcoin OTS anchor", "Zero-knowledge"].map((d) => (
+                          {["drand IBE timelock", "RSA-PSS keypair", "Bitcoin OTS anchor", "Zero-knowledge"].map((d) => (
                             <span key={d} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#F5F5F5] text-[#888]">
                               {d}
                             </span>
@@ -634,29 +691,104 @@ export default function Create() {
                 transition={{ duration: 0.3 }}
                 className="space-y-6"
               >
-                <div>
-                  <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-3 block">
-                    Target year
-                  </label>
-                  <div className="grid grid-cols-5 gap-2">
-                    {YEAR_OPTIONS.map((y) => (
+                {mode === "sealed_prediction" ? (
+                  /* ─ drand timelock: exact datetime picker ─ */
+                  <div>
+                    <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-3 block">
+                      Unlock date &amp; time
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={targetDatetime}
+                      onChange={(e) => setTargetDatetime(e.target.value)}
+                      min={minDatetimeLocal()}
+                      max={maxDatetimeLocal()}
+                      className="w-full h-12 rounded-2xl border border-[#E5E5E5] bg-white px-4 text-sm font-mono text-[#111] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
+                    />
+                    {targetDatetime && (
+                      <div className="mt-3 space-y-1">
+                        <p className="text-xs text-[#999] font-mono">
+                          Unlocks: {new Date(targetDatetime).toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" })}
+                        </p>
+                        {(() => {
+                          try {
+                            const round = drandRoundAt(new Date(targetDatetime).getTime());
+                            return (
+                              <p className="text-[10px] text-[#BBB] font-mono">
+                                drand quicknet round #{round.toLocaleString()}
+                              </p>
+                            );
+                          } catch {
+                            return null;
+                          }
+                        })()}
+                      </div>
+                    )}
+                    <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-[#6366F1]/5 border border-[#6366F1]/20">
+                      <Lock className="w-3.5 h-3.5 text-[#6366F1] mt-0.5 shrink-0" />
+                      <p className="text-[11px] text-[#6366F1] leading-relaxed">
+                        Encrypted with drand IBE — mathematically impossible to decrypt before this moment, even with your capsule file.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  /* ─ Proof of Existence: optional datetime picker ─ */
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-sm text-[#444] leading-relaxed mb-3">
+                        Entro quando prevedi che accada?{" "}
+                        <span className="text-[#999] text-xs">(opzionale)</span>
+                      </p>
+
                       <button
-                        key={y}
-                        onClick={() => setTargetYear(y)}
-                        className={`h-11 rounded-xl text-sm font-mono font-bold transition-all ${
-                          targetYear === y
-                            ? "bg-[#6366F1] text-white shadow-sm"
-                            : "bg-white border border-[#E5E5E5] hover:border-[#6366F1]/40 text-[#444]"
+                        onClick={() => setPoeHasDate(!poeHasDate)}
+                        className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all ${
+                          poeHasDate
+                            ? "border-[#6366F1] bg-[#6366F1]/5"
+                            : "border-[#E5E5E5] bg-white hover:border-[#CCC]"
                         }`}
                       >
-                        {y}
+                        <div className="flex items-center gap-2">
+                          <Clock className={`w-4 h-4 ${poeHasDate ? "text-[#6366F1]" : "text-[#999]"}`} />
+                          <span className={`text-sm font-medium ${poeHasDate ? "text-[#6366F1]" : "text-[#444]"}`}>
+                            Aggiungi una data target
+                          </span>
+                        </div>
+                        <div className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${poeHasDate ? "bg-[#6366F1]" : "bg-[#E5E5E5]"}`}>
+                          <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${poeHasDate ? "translate-x-4" : "translate-x-0"}`} />
+                        </div>
                       </button>
-                    ))}
+
+                      {poeHasDate && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          className="mt-3 space-y-2"
+                        >
+                          <input
+                            type="datetime-local"
+                            value={poeDatetime}
+                            onChange={(e) => setPoeDatetime(e.target.value)}
+                            min={minDatetimeLocal()}
+                            max={maxDatetimeLocal()}
+                            className="w-full h-12 rounded-2xl border border-[#E5E5E5] bg-white px-4 text-sm font-mono text-[#111] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
+                          />
+                          {poeDatetime && (
+                            <p className="text-xs text-[#999] font-mono">
+                              Gate: {new Date(poeDatetime).toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" })}
+                            </p>
+                          )}
+                        </motion.div>
+                      )}
+
+                      {!poeHasDate && (
+                        <p className="text-xs text-[#BBB] mt-2 font-mono">
+                          Senza data: la prediction è verificabile in qualsiasi momento.
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-xs text-[#999] mt-3 font-mono">
-                    Your prediction unlocks on January 1, {targetYear}
-                  </p>
-                </div>
+                )}
 
                 <div>
                   <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
@@ -680,6 +812,24 @@ export default function Create() {
               >
                 <div>
                   <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
+                    Nome autore{" "}
+                    <span className="normal-case text-[#CCC]">(opzionale)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={authorName}
+                    onChange={(e) => setAuthorName(e.target.value)}
+                    placeholder="Il tuo nome o alias"
+                    maxLength={100}
+                    className="w-full h-11 rounded-full border border-[#E5E5E5] bg-white px-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
+                  />
+                  <p className="text-[10px] text-[#BBB] mt-1.5 ml-1">
+                    Visibile nel feed pubblico e nel certificato PDF.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
                     Email reminder{" "}
                     <span className="normal-case text-[#CCC]">(optional)</span>
                   </label>
@@ -693,8 +843,7 @@ export default function Create() {
                   <div className="mt-2 flex items-start gap-2 p-3 rounded-xl bg-[#FAFAFA] border border-[#E5E5E5]">
                     <ShieldCheck className="w-4 h-4 text-[#6366F1] mt-0.5 shrink-0" />
                     <p className="text-[11px] text-[#666] leading-relaxed">
-                      Privacy-first: only a SHA-256 hash of your email is stored — never the address itself.
-                      Email reminders require manual verification at target year (coming soon).
+                      You'll receive a confirmation email first. Your reminder is queued only after you confirm ownership of the address.
                     </p>
                   </div>
                 </div>
@@ -771,7 +920,13 @@ export default function Create() {
                           <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
                             Unlocks
                           </p>
-                          <p className="font-medium">{targetYear}</p>
+                          <p className="font-medium">
+                            {mode === "sealed_prediction" && targetDatetime
+                              ? new Date(targetDatetime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+                              : poeHasDate && poeDatetime
+                              ? new Date(poeDatetime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+                              : "No time gate"}
+                          </p>
                         </div>
                         {inputTab === "file" && fileName && (
                           <div className="col-span-2">
@@ -818,8 +973,8 @@ export default function Create() {
                       <p className="text-xs text-amber-800 leading-relaxed">
                         {mode === "sealed_prediction" ? (
                           <><strong>Your .capsule file is your only key.</strong>{" "}
-                          Store it safely — it contains your encryption key and private key.
-                          If you lose it, your prediction cannot be decrypted.</>
+                          Store it safely. The drand timelock ciphertext and your RSA signing key are inside.
+                          If you lose it, your prediction cannot be revealed.</>
                         ) : visibility === "encrypted" ? (
                           <><strong>Keep your .capsule file safe.</strong>{" "}
                           It contains the AES-256 decryption key. Without it you cannot recover the plaintext.</>
@@ -955,8 +1110,11 @@ export default function Create() {
                           predictionId: sealed.prediction_id ?? "unknown",
                           hash: sealed.hash,
                           mode: sealed.mode,
-                          targetYear: sealed.target_year,
+                          targetYear: sealed.target_year ?? undefined,
+                          targetDatetime: sealed.target_datetime ?? null,
+                          drandRound: sealed.drand_round ?? null,
                           keywords: sealed.keywords,
+                          authorName: authorName.trim() || undefined,
                           createdAt: sealed.created_at,
                           tsaToken: sealed.tsa_token,
                           otsStatus,

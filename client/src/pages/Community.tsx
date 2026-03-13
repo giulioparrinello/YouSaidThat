@@ -39,6 +39,7 @@ function PredictionCard({
   });
 
   return (
+    <Link href={`/p/${prediction.id}`}>
     <motion.div
       ref={ref}
       initial={{ opacity: 0, y: 36, rotateX: -4 }}
@@ -49,7 +50,7 @@ function PredictionCard({
         ease: [0.22, 1, 0.36, 1],
       }}
       whileHover={{ y: -3, transition: { duration: 0.2 } }}
-      className="group bg-white border border-[#E5E5E5] rounded-2xl p-5 flex flex-col gap-4 cursor-default hover:border-[#6366F1]/30 hover:shadow-md transition-all"
+      className="group bg-white border border-[#E5E5E5] rounded-2xl p-5 flex flex-col gap-4 cursor-pointer hover:border-[#6366F1]/30 hover:shadow-md transition-all"
       style={{ perspective: "600px" }}
     >
       {/* Top row */}
@@ -148,6 +149,7 @@ function PredictionCard({
         )}
       </div>
     </motion.div>
+    </Link>
   );
 }
 

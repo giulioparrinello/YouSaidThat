@@ -1,3 +1,6 @@
+// @ts-ignore — opentimestamps has no TypeScript types
+import OpenTimestamps from "opentimestamps";
+
 const CALENDARS = [
   process.env.OTS_CALENDAR_URL_1 ||
     "https://alice.btc.calendar.opentimestamps.org",
@@ -34,32 +37,46 @@ export async function submitToOts(hashHex: string): Promise<string | null> {
 }
 
 // ─── Try to upgrade a pending OTS proof ───────────────────────────────────────
-// Returns the upgraded proof if confirmed, or null if still pending.
+// Returns the upgraded proof if confirmed, or { upgraded: false } if still pending.
 export async function upgradeOtsProof(
   otsProofBase64: string,
   hashHex: string
-): Promise<{ upgraded: boolean; proof?: string }> {
-  // Try to dynamically load the opentimestamps library (optional dependency)
+): Promise<{ upgraded: boolean; proof?: string; bitcoinBlock?: number }> {
   try {
-    const { createRequire } = await import("module");
-    const require = createRequire(import.meta.url);
-    const OpenTimestamps = require("opentimestamps") as any;
+    const proofBytes = Buffer.from(otsProofBase64, "base64");
 
-    const proofBytes = new Uint8Array(Buffer.from(otsProofBase64, "base64"));
-    const ctx = new OpenTimestamps.Context.StreamDeserializationContext(proofBytes);
-    const detached = OpenTimestamps.DetachedTimestampFile.deserialize(ctx);
+    // deserialize() accepts a Buffer directly
+    const detached = OpenTimestamps.DetachedTimestampFile.deserialize(proofBytes);
 
-    await OpenTimestamps.upgrade(detached);
+    // upgrade() mutates detached and returns a Promise<boolean> (true = upgraded)
+    const changed: boolean = await OpenTimestamps.upgrade(detached);
 
-    const upgradedBytes = Buffer.from(detached.serializeToBytes());
-    // If the proof grew, it was upgraded with Bitcoin attestation
-    if (upgradedBytes.length > proofBytes.length) {
-      return { upgraded: true, proof: upgradedBytes.toString("base64") };
+    if (!changed) {
+      return { upgraded: false };
     }
 
-    return { upgraded: false };
-  } catch {
-    // Library not available — fall back to simple calendar HTTP check
+    // Serialize the upgraded proof
+    const upgradedBytes: Buffer = detached.serializeToBytes();
+
+    // Extract Bitcoin block height from attestations (best-effort)
+    let bitcoinBlock: number | undefined;
+    try {
+      for (const [attest] of detached.timestamp.allAttestations()) {
+        if (attest instanceof OpenTimestamps.Notary.BitcoinBlockHeaderAttestation) {
+          bitcoinBlock = attest.height;
+          break;
+        }
+      }
+    } catch {
+      // block extraction is optional
+    }
+
+    console.log(`[ots] Proof upgraded for hash ${hashHex.slice(0, 8)}… bitcoin block: ${bitcoinBlock ?? "unknown"}`);
+    return { upgraded: true, proof: upgradedBytes.toString("base64"), bitcoinBlock };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[ots] upgradeOtsProof error for ${hashHex.slice(0, 8)}…: ${msg}`);
+    // Fall back to simple HTTP check on library error
     return simpleOtsCheck(hashHex);
   }
 }
@@ -70,9 +87,7 @@ async function simpleOtsCheck(
 ): Promise<{ upgraded: boolean; proof?: string }> {
   for (const calendarUrl of CALENDARS) {
     try {
-      const response = await fetch(
-        `${calendarUrl}/timestamp/${hashHex}`
-      );
+      const response = await fetch(`${calendarUrl}/timestamp/${hashHex}`);
       if (response.ok) {
         const proofBytes = Buffer.from(await response.arrayBuffer());
         return { upgraded: true, proof: proofBytes.toString("base64") };

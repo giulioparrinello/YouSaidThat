@@ -11,8 +11,14 @@ function getResend(): Resend {
   return _resend;
 }
 
+function getEmailFrom(): string {
+  const from = process.env.EMAIL_FROM;
+  if (!from) throw new Error("EMAIL_FROM not configured — set it to a verified Resend sender address");
+  return from;
+}
+
 export async function sendWaitlistConfirmationEmail(email: string): Promise<boolean> {
-  const from = "hello@yousaidthat.org";
+  const from = getEmailFrom();
 
   try {
     const { error } = await getResend().emails.send({
@@ -107,13 +113,70 @@ export async function sendWaitlistConfirmationEmail(email: string): Promise<bool
   }
 }
 
+export async function sendEmailConfirmationRequest(
+  email: string,
+  token: string,
+  notifyAt: Date
+): Promise<boolean> {
+  const from = process.env.EMAIL_FROM || "noreply@yousaidthat.org";
+  const confirmUrl = `https://yousaidthat.org/confirm-email?token=${token}`;
+  const dateStr = notifyAt.toISOString().slice(0, 10);
+
+  try {
+    const { error } = await getResend().emails.send({
+      from,
+      to: email,
+      subject: "Confirm your YouSaidThat delivery reminder",
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#111">
+          <p style="font-size:11px;font-family:monospace;letter-spacing:.15em;text-transform:uppercase;color:#6366f1;margin:0 0 24px">
+            YouSaidThat.org
+          </p>
+          <h1 style="font-size:22px;font-weight:700;margin:0 0 16px;letter-spacing:-.02em">
+            Confirm your email reminder
+          </h1>
+          <p style="color:#444;line-height:1.6">
+            Someone (hopefully you) registered a prediction and asked to be notified on <strong>${dateStr}</strong>.
+            Click below to confirm you want this reminder.
+          </p>
+          <div style="margin:28px 0">
+            <a href="${confirmUrl}"
+               style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:.02em">
+              Confirm reminder
+            </a>
+          </div>
+          <p style="color:#999;font-size:12px;line-height:1.6">
+            If you did not register a prediction on YouSaidThat, ignore this email — nothing will happen.<br/>
+            This link expires when the target date passes.
+          </p>
+          <hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0"/>
+          <p style="color:#bbb;font-size:11px;font-family:monospace">
+            YouSaidThat.org · Privacy-first prediction notarization
+          </p>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error(`[email] Confirmation send error:`, error.message);
+      return false;
+    }
+
+    console.log(`[email] Confirmation request sent to ${email}`);
+    return true;
+  } catch (err) {
+    console.error(`[email] Confirmation service error:`, err);
+    return false;
+  }
+}
+
 export async function sendReminderEmail(params: {
   email: string;
   targetYear: number;
   keywords?: string[] | null;
 }): Promise<boolean> {
   const { email, targetYear, keywords } = params;
-  const from = process.env.EMAIL_FROM || "noreply@yousaidthat.org";
+  const from = getEmailFrom();
   const keywordNote =
     keywords && keywords.length > 0
       ? `<p style="color:#555">Your keywords: <strong>${keywords.join(", ")}</strong></p>`

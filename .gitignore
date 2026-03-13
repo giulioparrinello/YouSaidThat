@@ -23,3 +23,13 @@ vite.config.ts.*
 *.p12
 secrets.json
 attached_assets/
+
+# ── Vercel ────────────────────────────────────────────────────────────────────
+.vercel/
+
+# ── App-generated artifacts ───────────────────────────────────────────────────
+erroreee.json
+*.odt
+*.capsule
+yousaidthat-certificate-*.pdf
+2026-03-12-194616-dove-posso-promuovere-il-mio-software.txt

@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { storage } from "../storage";
 import { upgradeOtsProof } from "./ots";
+import { sendReminderEmail } from "./email";
 
 export function startCronJobs(): void {
   // Poll OTS calendar every 6 hours for pending confirmations
@@ -21,13 +22,13 @@ export function startCronJobs(): void {
     }
   });
 
-  // Send annual email reminders on January 1 at 09:00 UTC
-  cron.schedule("0 9 1 1 *", async () => {
-    console.log("[cron] Starting annual email reminder job");
-    await sendAnnualReminders();
+  // Send due email reminders every hour
+  cron.schedule("0 * * * *", async () => {
+    console.log("[cron] Starting email reminder job");
+    await sendDueReminders();
   });
 
-  console.log("[cron] Jobs initialized (OTS every 6h, Arweave retry every 1h, reminders Jan 1 09:00 UTC)");
+  console.log("[cron] Jobs initialized (OTS every 6h, Arweave retry every 1h, reminders every 1h)");
 }
 
 export async function pollOtsStatus(): Promise<number> {
@@ -63,8 +64,9 @@ export async function pollOtsStatus(): Promise<number> {
         await storage.updateOtsStatus(prediction.id, {
           ots_status: "confirmed",
           ots_proof: result.proof,
+          bitcoin_block: result.bitcoinBlock,
         });
-        console.log(`[cron] Prediction ${prediction.id} OTS confirmed`);
+        console.log(`[cron] Prediction ${prediction.id} OTS confirmed (block ${result.bitcoinBlock ?? "?"})`);
         processed++;
       }
     }
@@ -74,10 +76,28 @@ export async function pollOtsStatus(): Promise<number> {
   return processed;
 }
 
-async function sendAnnualReminders(): Promise<void> {
-  // Privacy-first design: only email_hash is stored, so server-side dispatch
-  // is intentionally not supported. Users unlock proactively at target year.
-  // To enable email reminders, a separate opt-in mechanism that encrypts
-  // the address server-side would be needed.
-  console.log("[cron] Annual email reminder job: skipped (privacy mode — email_hash only, no raw address stored)");
+async function sendDueReminders(): Promise<void> {
+  try {
+    const due = await storage.getPendingEmailsDue();
+    console.log(`[cron] Sending reminders to ${due.length} recipients`);
+
+    for (const entry of due) {
+      const targetYear = new Date(entry.notify_at).getFullYear();
+      const ok = await sendReminderEmail({
+        email: entry.email,
+        targetYear,
+        keywords: entry.keywords,
+      }).catch(() => false);
+
+      if (ok) {
+        await storage.markEmailSent(entry.id);
+        console.log(`[cron] Reminder sent for email_queue ${entry.id}`);
+      } else {
+        await storage.markEmailFailed(entry.id);
+        console.log(`[cron] Reminder failed for email_queue ${entry.id}`);
+      }
+    }
+  } catch (err) {
+    console.error("[cron] Email reminder error:", err);
+  }
 }

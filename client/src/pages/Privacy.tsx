@@ -11,13 +11,13 @@ const SECTIONS = [
 • For Proof of Existence (Cleartext sub-mode): the full prediction text is stored in our database and uploaded permanently to Arweave, where it is publicly accessible forever
 • For Proof of Existence (Encrypted sub-mode): only the AES-256-GCM ciphertext is stored — the decryption key never leaves your device
 • For Sealed Prediction: only the hash is stored — content and keys exist solely in the .capsule file you download
-• If you provide an email address, only its SHA-256 hash is stored — we never retain the raw address
+• If you provide an email address for reminders, it is stored in our database and used solely to send you a delivery notification at your chosen date
 • Standard server access logs (IP address, timestamp) are not permanently stored`,
   },
   {
     title: "What we never collect",
     body: `• Your private key or RSA encryption key — these exist only in the .capsule file you download
-• A recoverable form of your email address
+• Your email address for any purpose other than sending the reminder you opted in to
 • Prediction text for Sealed Predictions — encryption happens entirely in your browser before anything is sent
 • Decryption keys for Encrypted Proof of Existence predictions`,
   },
@@ -29,19 +29,19 @@ For an immediate timestamp token (RFC 3161), we use Actalis CA. Again, only your
 
 For Proof of Existence predictions (Cleartext mode), the content is uploaded directly to Arweave — a decentralized, permanent storage network. Once uploaded, this content is publicly accessible at arweave.net and cannot be deleted. Do not use Cleartext mode if you intend to keep your prediction private.
 
-Email notifications (where opted in) are sent via Resend. Because we store only the hash of your email, reminder delivery requires manual re-verification at the target year — this feature is planned but not yet active.`,
+Email notifications (where opted in) are sent via Resend. You will receive a confirmation email first — your reminder is only queued after you confirm ownership of the address.`,
   },
   {
     title: "Data retention",
     body: `Prediction metadata (hash, mode, year, keywords) is stored indefinitely as it forms the permanent record of your timestamp. This is necessary for the service to function.
 
-Email hashes in the queue are retained until the target year has passed. Waitlist entries are retained until you request removal.`,
+Email addresses in the reminder queue are retained until the reminder is sent or the target date has passed, then deleted. Waitlist entries are retained until you request removal.`,
   },
   {
     title: "Your rights (GDPR)",
-    body: `If you are in the European Economic Area, you have the right to access, rectify, or erase personal data we hold about you. Because we store only hashed values, we cannot identify records by email address without you providing the original address.
+    body: `If you are in the European Economic Area, you have the right to access, rectify, or erase personal data we hold about you. To exercise your rights or request deletion of your email from the reminder queue, contact us with the address you registered.
 
-To exercise your rights or raise a concern, contact: privacy@yousaidthat.org`,
+To exercise your rights or raise a concern, contact: giulioparrinello@mail.com`,
   },
   {
     title: "Cookies & tracking",

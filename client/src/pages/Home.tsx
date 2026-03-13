@@ -1,6 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   Lock,
@@ -9,40 +9,68 @@ import {
   ShieldCheck,
   Zap,
   Globe,
-  X,
   ArrowRight,
-  Sparkles,
   CheckCircle2,
   Hash,
-  Timer,
   Eye,
   ChevronDown,
   ChevronRight,
   Search,
+  ThumbsUp,
+  ThumbsDown,
+  User,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import TextType from "@/components/TextType";
 import Aurora from "@/components/Aurora";
 import { api, type PublicPrediction } from "@/lib/api";
 
+// ─── Voter fingerprint ────────────────────────────────────────────────────────
+function getVoterFingerprint(): string {
+  let fp = localStorage.getItem("yst_voter_fp");
+  if (!fp) {
+    fp = crypto.randomUUID();
+    localStorage.setItem("yst_voter_fp", fp);
+  }
+  return fp;
+}
+
+// ─── Format datetime ──────────────────────────────────────────────────────────
+function formatDateDisplay(p: PublicPrediction): string {
+  if (p.target_datetime) {
+    return new Date(p.target_datetime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  }
+  if (p.target_year) return String(p.target_year);
+  return "nessuna data";
+}
+
+function formatTsaTimestamp(ts: string): string {
+  return new Date(ts).toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
 const MARQUEE_ITEMS = [
-  "AES-256 Client-Side Encryption",
+  "drand IBE Timelock Encryption",
   "Zero-Knowledge Architecture",
   "Bitcoin Blockchain Anchored",
   "Arweave Permanent Storage",
   "OpenTimestamps Protocol",
   "Non-Custodial by Design",
-  "Deterministic Time-Lock",
+  "Mathematically Enforced Time-Lock",
   "Privacy-First Infrastructure",
   "Immutable Notarization",
   "Trustless Reveal Mechanism",
 ];
 
-const STATS = [
-  { value: "12,847", label: "predictions sealed", suffix: "+" },
-  { value: "2040", label: "max time-lock", suffix: "" },
-  { value: "100%", label: "client-side", suffix: "" },
-  { value: "0", label: "keys held by us", suffix: "" },
+const STATIC_STATS = [
+  { label: "max time-lock", value: "2040", suffix: "" },
+  { label: "client-side", value: "100%", suffix: "" },
+  { label: "keys held by us", value: "0", suffix: "" },
 ];
 
 const HOW_IT_WORKS = [
@@ -87,82 +115,6 @@ const HOW_IT_WORKS = [
     barWidth: "100%",
   },
 ];
-
-// --- Coming Soon Modal ---
-function ComingSoonModal({
-  open,
-  onClose,
-  feature,
-}: {
-  open: boolean;
-  onClose: () => void;
-  feature: string;
-}) {
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            transition={{ type: "spring", stiffness: 400, damping: 30 }}
-            className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-md px-4"
-          >
-            <div className="relative bg-white rounded-3xl shadow-2xl border border-[#E5E5E5] p-10 flex flex-col items-center text-center gap-6">
-              <button
-                onClick={onClose}
-                className="absolute top-5 right-5 text-[#999] hover:text-[#111] transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <div className="relative">
-                <div className="w-16 h-16 rounded-2xl bg-[#FAFAFA] border border-[#E5E5E5] flex items-center justify-center">
-                  <Sparkles className="w-7 h-7 text-[#6366F1]" />
-                </div>
-                <motion.div
-                  animate={{ scale: [1, 1.3, 1], opacity: [0.3, 0.6, 0.3] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                  className="absolute inset-0 rounded-2xl border-2 border-[#6366F1]"
-                />
-              </div>
-              <div className="space-y-2">
-                <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1]">
-                  Coming Soon
-                </p>
-                <h2 className="text-2xl font-bold tracking-tight text-[#111111]">
-                  {feature}
-                </h2>
-                <p className="text-sm text-[#666666] leading-relaxed max-w-[300px]">
-                  We're building the infrastructure for trustless future-proof
-                  statements. This feature will be live on launch day.
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5 text-[9px] font-mono text-[#111] bg-[#F5F5F5] px-3 py-1 rounded-full border border-[#E5E5E5]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#6366F1] animate-pulse" />
-                #PANKO000
-              </div>
-              <Button
-                onClick={onClose}
-                className="rounded-full bg-[#111111] text-white hover:bg-[#222222] h-11 px-8 text-sm"
-              >
-                Got it
-              </Button>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-}
 
 // --- Waitlist Form ---
 function WaitlistForm() {
@@ -270,11 +222,165 @@ function WaitlistForm() {
   );
 }
 
+// ─── Prediction card with like/dislike ───────────────────────────────────────
+function PredictionCard({ p, fingerprint }: { p: PublicPrediction; fingerprint: string }) {
+  const queryClient = useQueryClient();
+  const [optimistic, setOptimistic] = useState<{
+    likes: number;
+    dislikes: number;
+    my_vote: "like" | "dislike" | null;
+  }>({
+    likes: p.likes_count,
+    dislikes: p.dislikes_count,
+    my_vote: p.my_vote,
+  });
+
+  const handleVote = useCallback(async (vote_type: "like" | "dislike") => {
+    const prev = { ...optimistic };
+    // Optimistic update
+    const isToggleOff = optimistic.my_vote === vote_type;
+    setOptimistic((s) => {
+      const next = { ...s };
+      if (isToggleOff) {
+        next[vote_type === "like" ? "likes" : "dislikes"] = Math.max(0, next[vote_type === "like" ? "likes" : "dislikes"] - 1);
+        next.my_vote = null;
+      } else {
+        if (s.my_vote) {
+          next[s.my_vote === "like" ? "likes" : "dislikes"] = Math.max(0, next[s.my_vote === "like" ? "likes" : "dislikes"] - 1);
+        }
+        next[vote_type === "like" ? "likes" : "dislikes"] += 1;
+        next.my_vote = vote_type;
+      }
+      return next;
+    });
+
+    try {
+      const result = await api.voteOnPrediction(p.id, { vote_type, fingerprint });
+      setOptimistic({ likes: result.likes, dislikes: result.dislikes, my_vote: result.my_vote });
+      queryClient.invalidateQueries({ queryKey: ["public-predictions"] });
+    } catch {
+      setOptimistic(prev); // revert on error
+    }
+  }, [optimistic, p.id, fingerprint, queryClient]);
+
+  const dateDisplay = formatDateDisplay(p);
+
+  return (
+    <Link href={`/p/${p.id}`}>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      className="bg-white border border-[#E5E5E5] rounded-2xl p-4 space-y-2.5 hover:border-[#6366F1]/30 transition-colors flex flex-col cursor-pointer"
+    >
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {p.author_name ? (
+            <span className="flex items-center gap-1 text-[10px] font-mono text-[#6366F1] truncate">
+              <User className="w-2.5 h-2.5 shrink-0" />
+              {p.author_name}
+            </span>
+          ) : (
+            <span className="text-[10px] font-mono text-[#CCC]">
+              {p.content ? "" : `${p.hash_preview}…`}
+            </span>
+          )}
+        </div>
+        <span
+          className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded-full border shrink-0 ${
+            p.ots_status === "confirmed"
+              ? "text-green-600 bg-green-50 border-green-100"
+              : "text-amber-600 bg-amber-50 border-amber-100"
+          }`}
+        >
+          {p.ots_status === "confirmed" ? "BTC ✓" : "pending"}
+        </span>
+      </div>
+
+      {/* Content */}
+      {p.content ? (
+        <p className="text-xs text-[#444] leading-relaxed line-clamp-2 flex-1">
+          {p.content}
+        </p>
+      ) : (
+        <div className="flex items-center gap-1.5 flex-1">
+          <span className="text-sm font-bold text-[#111]">{dateDisplay}</span>
+          <span className="text-[10px] text-[#CCC]">·</span>
+          <span className="text-[10px] text-[#999] capitalize">
+            {p.mode.replace(/_/g, " ")}
+          </span>
+        </div>
+      )}
+
+      {/* Date display */}
+      <p className="text-[10px] font-mono text-[#BBB]">
+        {p.content ? `riguardo ${dateDisplay}` : ""}
+      </p>
+
+      {/* Keywords */}
+      {p.keywords && p.keywords.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {p.keywords.map((k) => (
+            <span
+              key={k}
+              className="px-2 py-0.5 bg-[#F5F5F5] rounded-full text-[10px] font-mono text-[#666]"
+            >
+              {k}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Retroactivity badge */}
+      {p.is_retroactive && p.timestamp_utc && (
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-100">
+          <ShieldCheck className="w-3 h-3 text-indigo-500 shrink-0" />
+          <span className="text-[9px] font-mono text-indigo-600">
+            Retroattività Garantita · TSA: {formatTsaTimestamp(p.timestamp_utc)}
+          </span>
+        </div>
+      )}
+
+      {/* Like/dislike */}
+      <div className="flex items-center gap-2 pt-1 mt-auto border-t border-[#F5F5F5]" onClick={(e) => e.preventDefault()}>
+        <button
+          onClick={() => handleVote("like")}
+          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${
+            optimistic.my_vote === "like"
+              ? "bg-green-50 text-green-600 border border-green-200"
+              : "text-[#999] hover:text-green-600 hover:bg-green-50"
+          }`}
+        >
+          <ThumbsUp className="w-3 h-3" />
+          <span className="font-mono">{optimistic.likes}</span>
+        </button>
+        <button
+          onClick={() => handleVote("dislike")}
+          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${
+            optimistic.my_vote === "dislike"
+              ? "bg-red-50 text-red-500 border border-red-200"
+              : "text-[#999] hover:text-red-500 hover:bg-red-50"
+          }`}
+        >
+          <ThumbsDown className="w-3 h-3" />
+          <span className="font-mono">{optimistic.dislikes}</span>
+        </button>
+        <span className="ml-auto text-[9px] font-mono text-[#DDD]">
+          {p.hash_preview}…
+        </span>
+      </div>
+    </motion.div>
+    </Link>
+  );
+}
+
 // ─── Public Predictions Feed ──────────────────────────────────────────────────
 function PublicFeed() {
+  const fingerprint = getVoterFingerprint();
   const { data, isLoading } = useQuery({
     queryKey: ["public-predictions"],
-    queryFn: () => api.getPublicPredictions({ limit: 6 }),
+    queryFn: () => api.getPublicPredictions({ limit: 6, fingerprint }),
     staleTime: 60_000,
   });
 
@@ -314,55 +420,7 @@ function PublicFeed() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {data.predictions.map((p: PublicPrediction) => (
-          <motion.div
-            key={p.id}
-            initial={{ opacity: 0, y: 8 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="bg-white border border-[#E5E5E5] rounded-2xl p-4 space-y-2.5 hover:border-[#6366F1]/30 transition-colors"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono text-[#CCC]">
-                {p.content ? `${p.target_year}` : `${p.hash_preview}…`}
-              </span>
-              <span
-                className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded-full border ${
-                  p.ots_status === "confirmed"
-                    ? "text-green-600 bg-green-50 border-green-100"
-                    : "text-amber-600 bg-amber-50 border-amber-100"
-                }`}
-              >
-                {p.ots_status === "confirmed" ? "BTC ✓" : "pending"}
-              </span>
-            </div>
-            {p.content ? (
-              <p className="text-xs text-[#444] leading-relaxed line-clamp-2">
-                {p.content}
-              </p>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-bold text-[#111]">
-                  {p.target_year}
-                </span>
-                <span className="text-[10px] text-[#CCC]">·</span>
-                <span className="text-[10px] text-[#999] capitalize">
-                  {p.mode.replace(/_/g, " ")}
-                </span>
-              </div>
-            )}
-            {p.keywords && p.keywords.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {p.keywords.map((k) => (
-                  <span
-                    key={k}
-                    className="px-2 py-0.5 bg-[#F5F5F5] rounded-full text-[10px] font-mono text-[#666]"
-                  >
-                    {k}
-                  </span>
-                ))}
-              </div>
-            )}
-          </motion.div>
+          <PredictionCard key={p.id} p={p} fingerprint={fingerprint} />
         ))}
       </div>
     </div>
@@ -370,20 +428,25 @@ function PublicFeed() {
 }
 
 export default function Home() {
-  const [modal, setModal] = useState<{ open: boolean; feature: string }>({
-    open: false,
-    feature: "",
+  const { data: statsData } = useQuery({
+    queryKey: ["stats"],
+    queryFn: () => api.getStats(),
+    staleTime: 60_000,
   });
 
-  const openModal = (feature: string) => setModal({ open: true, feature });
-  const closeModal = () => setModal({ open: false, feature: "" });
+  const STATS = [
+    {
+      value: statsData ? statsData.total.toLocaleString("en-US") : "—",
+      label: "predictions sealed",
+      suffix: statsData ? "+" : "",
+    },
+    ...STATIC_STATS,
+  ];
 
   const marqueeItems = [...MARQUEE_ITEMS, ...MARQUEE_ITEMS];
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] text-[#111111] flex flex-col font-sans">
-      {/* Coming Soon Modal */}
-      <ComingSoonModal open={modal.open} onClose={closeModal} feature={modal.feature} />
 
       {/* ─── TOP SCROLLING TICKER ─── */}
       <div className="relative z-20 w-full bg-[#111111] text-white py-2 overflow-hidden">
@@ -526,20 +589,36 @@ export default function Home() {
           transition={{ duration: 0.7 }}
           className="mt-20 w-full max-w-2xl grid grid-cols-2 md:grid-cols-4 gap-4"
         >
-          {STATS.map((stat, i) => (
-            <div
-              key={i}
-              className="flex flex-col items-center text-center py-5 px-3 rounded-2xl border border-[#E5E5E5] bg-white"
-            >
-              <span className="text-2xl font-bold tracking-tight text-[#111111]">
-                {stat.value}
-                <span className="text-[#6366F1]">{stat.suffix}</span>
-              </span>
-              <span className="text-[10px] font-mono text-[#999] uppercase tracking-widest mt-1">
-                {stat.label}
-              </span>
-            </div>
-          ))}
+          {STATS.map((stat, i) => {
+            const isSealed = stat.label === "predictions sealed";
+            const content = (
+              <>
+                <span className="text-2xl font-bold tracking-tight text-[#111111]">
+                  {stat.value}
+                  <span className="text-[#6366F1]">{stat.suffix}</span>
+                </span>
+                <span className="text-[10px] font-mono text-[#999] uppercase tracking-widest mt-1">
+                  {stat.label}
+                </span>
+              </>
+            );
+            return isSealed ? (
+              <Link
+                key={i}
+                href="/community"
+                className="flex flex-col items-center text-center py-5 px-3 rounded-2xl border border-[#E5E5E5] bg-white cursor-pointer hover:border-[#6366F1] transition-colors"
+              >
+                {content}
+              </Link>
+            ) : (
+              <div
+                key={i}
+                className="flex flex-col items-center text-center py-5 px-3 rounded-2xl border border-[#E5E5E5] bg-white"
+              >
+                {content}
+              </div>
+            );
+          })}
         </motion.div>
 
         {/* Divider */}
@@ -585,7 +664,7 @@ export default function Home() {
                 <p className="text-sm text-[#666] leading-relaxed">
                   Prove that a document, idea, or statement existed at a specific
                   point in time. Choose <strong>Cleartext</strong> to store the content
-                  openly on Arweave — verifiable by anyone, forever — or <strong>Encrypted</strong>
+                  openly on Arweave — verifiable by anyone, forever — or <strong>Encrypted </strong>
                   to keep the content private with the key only in your PDF.
                 </p>
               </div>
@@ -630,13 +709,11 @@ export default function Home() {
                   Sealed Prediction
                 </h3>
                 <p className="text-sm text-white/60 leading-relaxed">
-                  Write a prediction, encrypt it locally with AES-256-GCM, and
-                  anchor its hash to Bitcoin. The server never sees your content
-                  or your keys. Unlock it at your target year to prove you knew.
+                Write a prediction, seal it with drand IBE timelock. The decryption key doesn’t exist yet — it is mathematically impossible to open it before the chosen date. The server never sees your text.
                 </p>
               </div>
               <ul className="space-y-2 mt-auto">
-                {["AES-256-GCM client-side encryption", "RSA-PSS keypair for attestation", "Bitcoin + TSA timestamp", ".capsule file — your only key"].map((f) => (
+                {["drand IBE timelock — key doesn't exist yet", "RSA-PSS keypair for attestation", "Bitcoin + TSA timestamp", ".capsule file — your only key"].map((f) => (
                   <li key={f} className="flex items-center gap-2 text-[11px] text-white/60">
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#6366F1] shrink-0" />
                     {f}
@@ -758,49 +835,13 @@ export default function Home() {
           <PublicFeed />
         </motion.div>
 
-        {/* Demo Capsule */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-          className="w-full max-w-sm group mb-20"
-        >
-          <div className="relative p-px rounded-3xl bg-gradient-to-b from-[#E5E5E5] to-transparent hover:from-[#6366F1]/40 transition-colors duration-700">
-            <div className="absolute inset-0 bg-[#6366F1]/5 blur-3xl rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
-            <div className="relative bg-white rounded-[23px] p-8 shadow-sm flex flex-col items-center text-center gap-6">
-              <div className="w-16 h-16 rounded-2xl bg-[#FAFAFA] border border-[#F0F0F0] flex items-center justify-center mb-2 relative group-hover:rotate-12 transition-transform duration-500">
-                <Lock className="h-6 w-6 text-[#111111]" strokeWidth={1.5} />
-                <motion.div
-                  animate={{ opacity: [0, 1, 0] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                  className="absolute inset-0 border-2 border-[#6366F1] rounded-2xl"
-                />
-              </div>
-              <div className="space-y-2">
-                <div className="text-[10px] uppercase tracking-[0.3em] text-[#6366F1] font-bold font-mono">
-                  Encrypted Payload
-                </div>
-                <div className="font-mono text-[11px] text-[#666666] break-all leading-tight opacity-50 overflow-hidden h-8">
-                  0x7A2F...9B1E4D...C3A0...F9E2...8B7C...D1A5
-                </div>
-                <div className="font-semibold text-[#111111] mt-4">Locked until 2040</div>
-              </div>
-              <div className="flex items-center gap-1.5 text-[9px] font-mono text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">
-                <Fingerprint className="w-3 h-3" />
-                VERIFIED BY OPENTIMESTAMPS
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
         {/* Features */}
         <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-12 md:gap-16 text-left mb-20">
           {[
             {
               icon: Fingerprint,
-              title: "Zero-Knowledge Encryption",
-              desc: "Your predictions are sealed locally using AES-256. We don't hold the keys. We can't see your data.",
+              title: "Timelock crittografico",
+              desc: "Le sealed predictions usano drand IBE (tlock-js). La chiave di decifrazione non esiste fisicamente fino alla data target — non è una password, è matematica.",
             },
             {
               icon: ShieldCheck,
@@ -848,7 +889,7 @@ export default function Home() {
             <Zap className="w-4 h-4" /> BITCOIN ANCHORED
           </div>
           <div className="flex items-center gap-2 font-mono text-[10px] font-bold">
-            <ShieldCheck className="w-4 h-4" /> AES-256-GCM
+            <ShieldCheck className="w-4 h-4" /> DRAND IBE TIMELOCK
           </div>
           <div className="flex items-center gap-2 font-mono text-[10px] font-bold">
             <Globe className="w-4 h-4" /> ARWEAVE PERMANENT
@@ -873,23 +914,31 @@ export default function Home() {
               An European project. The first trustless, privacy-first
               infrastructure for future-proof statements.
             </p>
-            <div className="mt-1 text-[10px] opacity-60">By Giulio Parrinello</div>
+            <div className="mt-1 text-[10px] opacity-60">
+              By{" "}
+              <a
+                href="https://giulioparrinello.it"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:opacity-100 underline underline-offset-2 transition-opacity"
+              >
+                Giulio Parrinello
+              </a>
+            </div>
           </div>
 
           <div className="flex flex-col md:items-end items-center gap-4">
             <div className="flex items-center gap-8">
-              <button
-                onClick={() => openModal("Documentation")}
-                className="hover:text-[#111111] transition-colors font-medium"
-              >
-                Documentation
-              </button>
-              <button
-                onClick={() => openModal("Security Audit")}
-                className="hover:text-[#111111] transition-colors font-medium"
-              >
-                Security Audit
-              </button>
+              <Link href="/docs">
+                <span className="hover:text-[#111111] transition-colors font-medium cursor-pointer">
+                  Documentation
+                </span>
+              </Link>
+              <Link href="/security-audit">
+                <span className="hover:text-[#111111] transition-colors font-medium cursor-pointer">
+                  Security Audit
+                </span>
+              </Link>
               <Link href="/privacy">
                 <span className="hover:text-[#111111] transition-colors font-medium cursor-pointer">
                   Privacy

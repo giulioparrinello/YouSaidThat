@@ -1,22 +1,24 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
-import { webcrypto, randomUUID } from "crypto";
+import { webcrypto, randomUUID, timingSafeEqual } from "crypto";
 import DOMPurify from "isomorphic-dompurify";
 import { storage } from "./storage";
 import { requestTsaToken } from "./services/tsa";
 import { submitToOts } from "./services/ots";
-import { uploadContent, getArweaveBalance } from "./services/arweave";
+import { uploadContent, getArweaveBalance, getArweaveAddress } from "./services/arweave";
 import {
   registerPredictionSchema,
   claimPredictionSchema,
   waitlistSchema,
+  revealPredictionSchema,
+  voteSchema,
 } from "../shared/schema";
 import {
   registerLimiter,
   claimLimiter,
   getLimiter,
 } from "./middleware/rateLimiter";
-import { sendWaitlistConfirmationEmail } from "./services/email";
+import { sendWaitlistConfirmationEmail, sendEmailConfirmationRequest } from "./services/email";
 import type { ZodError } from "zod";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,8 +72,24 @@ export async function registerRoutes(
 ): Promise<Server> {
 
   // GET /health
-  app.get("/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  app.get("/health", async (_req: Request, res: Response) => {
+    try {
+      const stats = await storage.getStats();
+      res.json({ status: "ok", timestamp: new Date().toISOString(), db: "connected", predictions: stats.total });
+    } catch {
+      res.status(503).json({ status: "error", timestamp: new Date().toISOString(), db: "disconnected" });
+    }
+  });
+
+  // GET /api/stats — public prediction count for homepage
+  app.get("/api/stats", getLimiter, async (_req: Request, res: Response) => {
+    try {
+      const stats = await storage.getAdminStats();
+      res.json({ total: stats.total });
+    } catch (err) {
+      console.error("[stats] Error:", err);
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   // POST /api/predictions/register
@@ -84,7 +102,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: zodMsg(parsed.error) });
       }
 
-      const { hash, mode, target_year, keywords, email_hash, is_public, content, content_encrypted } =
+      const { hash, mode, target_year, author_name, keywords, email, is_public, content, content_encrypted, drand_round, target_datetime } =
         parsed.data;
 
       // Idempotent: if this hash was already registered, return existing record
@@ -105,15 +123,28 @@ export async function registerRoutes(
       // RFC 3161 TSA token — synchronous, immediate proof of existence
       const tsaToken = await requestTsaToken(hash).catch(() => null);
 
-      // Atomically insert prediction + optional email queue entry
-      // email_hash is pre-computed client-side (SHA-256 of lowercase-trimmed email)
-      const emailQueueData = email_hash
+      // Compute notify_at only when we have a target date
+      const notifyAt = target_datetime
+        ? new Date(target_datetime)
+        : target_year
+        ? new Date(`${target_year}-01-01T09:00:00Z`)
+        : null;
+
+      // Only create email queue entry if email provided AND we have a notify date
+      const confirmToken = randomUUID();
+      const emailData = email && notifyAt
         ? {
-            email_hash,
-            target_year,
+            email: email.trim().toLowerCase(),
+            notify_at: notifyAt,
             keywords: keywords ?? null,
+            confirmation_token: confirmToken,
           }
         : undefined;
+
+      // Sanitize author_name if provided
+      const sanitizedAuthorName = author_name
+        ? DOMPurify.sanitize(author_name.slice(0, 100), { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })
+        : null;
 
       // Determine arweave_status: only attempt upload if there's content to store
       const hasArweaveContent = !!(content || content_encrypted);
@@ -122,7 +153,8 @@ export async function registerRoutes(
         {
           hash,
           mode,
-          target_year,
+          target_year: target_year ?? null,
+          author_name: sanitizedAuthorName,
           keywords: keywords ?? null,
           ots_status: "pending",
           ots_proof: null,
@@ -131,9 +163,17 @@ export async function registerRoutes(
           content: content ?? null,
           content_encrypted: content_encrypted ?? null,
           arweave_status: hasArweaveContent ? "pending" : "none",
+          drand_round: drand_round ?? null,
+          target_datetime: target_datetime ? new Date(target_datetime) : null,
         },
-        emailQueueData
+        emailData
       );
+
+      // Confirmation email — fire-and-forget, only if email was provided
+      if (emailData) {
+        sendEmailConfirmationRequest(emailData.email, confirmToken, emailData.notify_at)
+          .catch((err) => console.error("[routes] Confirmation email error:", err));
+      }
 
       // OTS submission — async, Bitcoin anchoring happens in background
       submitToOts(hash)
@@ -153,7 +193,7 @@ export async function registerRoutes(
         uploadContent(uploadPayload, {
           hash,
           mode,
-          targetYear: String(target_year),
+          targetYear: target_year ? String(target_year) : undefined,
         })
           .then(async (txId) => {
             if (txId) {
@@ -181,7 +221,8 @@ export async function registerRoutes(
   );
 
   // GET /api/predictions/public
-  // Only Mode 1 (proof_of_existence) predictions with is_public=true appear here
+  // Returns all public predictions (both modes). Sealed predictions appear only
+  // if is_public=true AND content is revealed. Includes vote counts.
   app.get(
     "/api/predictions/public",
     getLimiter,
@@ -195,26 +236,39 @@ export async function registerRoutes(
       const year = req.query.year
         ? parseInt(req.query.year as string, 10)
         : undefined;
+      const fingerprint = req.query.fingerprint as string | undefined;
 
-      const { predictions, total } = await storage.getPublicPredictions({
+      const { predictions: rows, total } = await storage.getPublicPredictions({
         page,
         limit,
         keyword,
         year,
-        mode: "proof_of_existence",
       });
 
-      const sanitized = predictions.map((p) => ({
-        id: p.id,
-        hash_preview: p.hash.slice(0, 8),
-        target_year: p.target_year,
-        keywords: p.keywords,
-        mode: p.mode,
-        ots_status: p.ots_status,
-        created_at: p.created_at,
-        content: p.content ?? null,
-        arweave_tx_id: p.arweave_tx_id ?? null,
-        arweave_status: p.arweave_status,
+      // Attach vote counts (and optionally my_vote) to each prediction
+      const sanitized = await Promise.all(rows.map(async (p) => {
+        const votes = await storage.getVoteCounts(p.id);
+        const myVote = fingerprint ? await storage.getMyVote(p.id, fingerprint) : null;
+        const isRetrospective = p.mode === "sealed_prediction" && !!p.content && !!p.tsa_token;
+        return {
+          id: p.id,
+          hash_preview: p.hash.slice(0, 8),
+          target_year: p.target_year,
+          target_datetime: p.target_datetime,
+          author_name: p.author_name ?? null,
+          keywords: p.keywords,
+          mode: p.mode,
+          ots_status: p.ots_status,
+          created_at: p.created_at,
+          timestamp_utc: p.timestamp_utc,
+          content: p.content ?? null,
+          arweave_tx_id: p.arweave_tx_id ?? null,
+          arweave_status: p.arweave_status,
+          likes_count: votes.likes,
+          dislikes_count: votes.dislikes,
+          my_vote: myVote,
+          is_retroactive: isRetrospective,
+        };
       }));
 
       return res.json({ predictions: sanitized, total, page, limit });
@@ -245,6 +299,8 @@ export async function registerRoutes(
         hash: prediction.hash,
         mode: prediction.mode,
         target_year: prediction.target_year,
+        target_datetime: prediction.target_datetime,
+        author_name: prediction.author_name ?? null,
         keywords: prediction.keywords,
         ots_confirmed: prediction.ots_status === "confirmed",
         ots_status: prediction.ots_status,
@@ -274,6 +330,8 @@ export async function registerRoutes(
         hash: prediction.hash,
         mode: prediction.mode,
         target_year: prediction.target_year,
+        target_datetime: prediction.target_datetime,
+        author_name: prediction.author_name ?? null,
         keywords: prediction.keywords,
         ots_status: prediction.ots_status,
         bitcoin_block: prediction.bitcoin_block,
@@ -282,6 +340,8 @@ export async function registerRoutes(
         ots_proof: prediction.ots_proof,
         is_public: prediction.is_public,
         created_at: prediction.created_at,
+        content: prediction.is_public ? (prediction.content ?? null) : null,
+        arweave_tx_id: prediction.is_public ? (prediction.arweave_tx_id ?? null) : null,
       });
     }
   );
@@ -305,6 +365,72 @@ export async function registerRoutes(
     }
   );
 
+  // POST /api/predictions/:id/reveal
+  // Called at unlock time (optional). Verifies content hash, sets is_public.
+  app.post(
+    "/api/predictions/:id/reveal",
+    claimLimiter,
+    async (req: Request, res: Response) => {
+      const parsed = revealPredictionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: zodMsg(parsed.error) });
+      }
+
+      const { content, is_public } = parsed.data;
+
+      const prediction = await storage.getPredictionById(req.params.id as string);
+      if (!prediction) {
+        return res.status(404).json({ message: "Prediction not found" });
+      }
+
+      // If content provided, verify SHA-256 matches the stored hash
+      if (content) {
+        const { subtle } = webcrypto;
+        const hashBuffer = await subtle.digest("SHA-256", new TextEncoder().encode(content));
+        const hashHex = Buffer.from(hashBuffer).toString("hex");
+        if (hashHex !== prediction.hash) {
+          return res.status(400).json({ message: "Content hash mismatch" });
+        }
+      }
+
+      await storage.revealPrediction(prediction.id, { content, is_public });
+
+      return res.json({ ok: true, is_public });
+    }
+  );
+
+  // POST /api/predictions/:id/vote
+  // Toggle like/dislike on a public prediction. Identified by voter fingerprint (localStorage UUID).
+  app.post(
+    "/api/predictions/:id/vote",
+    getLimiter,
+    async (req: Request, res: Response) => {
+      const parsed = voteSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: zodMsg(parsed.error) });
+      }
+
+      const { vote_type, fingerprint } = parsed.data;
+      const prediction = await storage.getPredictionById(req.params.id as string);
+      if (!prediction || !prediction.is_public) {
+        return res.status(404).json({ message: "Prediction not found" });
+      }
+
+      const existing = await storage.getMyVote(prediction.id, fingerprint);
+      if (existing === vote_type) {
+        // Toggle off: same vote type → remove
+        await storage.removeVote(prediction.id, fingerprint);
+      } else {
+        // New vote or switch vote type
+        await storage.upsertVote(prediction.id, vote_type, fingerprint);
+      }
+
+      const counts = await storage.getVoteCounts(prediction.id);
+      const myVote = await storage.getMyVote(prediction.id, fingerprint);
+      return res.json({ ...counts, my_vote: myVote });
+    }
+  );
+
   // POST /api/predictions/claim
   app.post(
     "/api/predictions/claim",
@@ -322,11 +448,15 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Prediction not found" });
       }
 
-      // Server-side year gate (cryptographic enforcement)
-      const currentYear = new Date().getFullYear();
-      if (currentYear < prediction.target_year) {
+      // Server-side time gate
+      const targetDate = prediction.target_datetime
+        ? new Date(prediction.target_datetime)
+        : prediction.target_year
+        ? new Date(prediction.target_year, 0, 1)
+        : null;
+      if (targetDate && new Date() < targetDate) {
         return res.status(403).json({
-          message: `This prediction cannot be claimed until ${prediction.target_year}`,
+          message: `This prediction cannot be claimed until ${targetDate.toISOString().slice(0, 10)}`,
         });
       }
 
@@ -359,7 +489,8 @@ export async function registerRoutes(
 
       // Pre-generate the ID so the URL can be included on first insert
       const attestationId = randomUUID();
-      const attestationUrl = `https://yousaidthat.org/attestation/${attestationId}`;
+      const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+      const attestationUrl = `${baseUrl}/attestation/${attestationId}`;
 
       const attestation = await storage.insertAttestation({
         id: attestationId,
@@ -425,7 +556,14 @@ export async function registerRoutes(
       res.status(503).json({ error: "Admin not configured (ADMIN_SECRET not set)" });
       return false;
     }
-    if (req.headers["x-admin-secret"] !== secret) {
+    const provided = req.headers["x-admin-secret"];
+    if (!provided || typeof provided !== "string") {
+      res.status(401).json({ error: "Unauthorized" });
+      return false;
+    }
+    const secretBuf = Buffer.from(secret);
+    const providedBuf = Buffer.from(provided);
+    if (secretBuf.length !== providedBuf.length || !timingSafeEqual(secretBuf, providedBuf)) {
       res.status(401).json({ error: "Unauthorized" });
       return false;
     }
@@ -437,8 +575,11 @@ export async function registerRoutes(
     if (!checkAdminSecret(req, res)) return;
     try {
       const stats = await storage.getAdminStats();
-      const balance = await getArweaveBalance();
-      return res.json({ ...stats, arweaveBalance: balance });
+      const [balance, arweaveAddress] = await Promise.all([
+        getArweaveBalance(),
+        getArweaveAddress(),
+      ]);
+      return res.json({ ...stats, arweaveBalance: balance, arweaveAddress });
     } catch (err) {
       console.error("[admin/stats] Error:", err);
       return res.status(500).json({ error: "Internal error" });
@@ -474,7 +615,7 @@ export async function registerRoutes(
       const txId = await uploadContent(content, {
         hash: prediction.hash,
         mode: prediction.mode,
-        targetYear: String(prediction.target_year),
+        targetYear: prediction.target_year ? String(prediction.target_year) : undefined,
       });
 
       if (txId) {
@@ -513,10 +654,15 @@ export async function registerRoutes(
   });
 
   // GET /api/cron/arweave-retry
-  // Called by Vercel Cron every hour. Protected by CRON_SECRET.
+  // Called by Supabase pg_cron every hour. Protected by CRON_SECRET.
   app.get("/api/cron/arweave-retry", async (req: Request, res: Response) => {
     const secret = process.env.CRON_SECRET;
-    if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+    if (!secret) return res.status(503).json({ error: "CRON_SECRET not configured" });
+    const provided = (req.headers.authorization ?? "").replace("Bearer ", "");
+    if (
+      provided.length !== secret.length ||
+      !timingSafeEqual(Buffer.from(provided), Buffer.from(secret))
+    ) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     try {
@@ -530,10 +676,15 @@ export async function registerRoutes(
   });
 
   // GET /api/cron/ots-poll
-  // Called by Vercel Cron every 6h. Protected by CRON_SECRET.
+  // Called by Supabase pg_cron every 6h. Protected by CRON_SECRET.
   app.get("/api/cron/ots-poll", async (req: Request, res: Response) => {
     const secret = process.env.CRON_SECRET;
-    if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+    if (!secret) return res.status(503).json({ error: "CRON_SECRET not configured" });
+    const provided = (req.headers.authorization ?? "").replace("Bearer ", "");
+    if (
+      provided.length !== secret.length ||
+      !timingSafeEqual(Buffer.from(provided), Buffer.from(secret))
+    ) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     try {
@@ -544,6 +695,20 @@ export async function registerRoutes(
       console.error("[cron/ots-poll] Error:", err);
       return res.status(500).json({ error: "Internal error" });
     }
+  });
+
+  // GET /api/email-confirm/:token
+  // Confirms a delivery reminder opt-in. Called when user clicks link in confirmation email.
+  app.get("/api/email-confirm/:token", getLimiter, async (req: Request, res: Response) => {
+    const token = req.params.token as string;
+    if (!/^[0-9a-f-]{36}$/.test(token)) {
+      return res.status(400).json({ message: "Invalid token" });
+    }
+    const confirmed = await storage.confirmEmailByToken(token);
+    if (!confirmed) {
+      return res.status(404).json({ message: "Token not found or already confirmed" });
+    }
+    return res.json({ ok: true });
   });
 
   // POST /api/waitlist

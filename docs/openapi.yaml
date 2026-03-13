@@ -1,0 +1,740 @@
+openapi: 3.0.3
+info:
+  title: YouSaidThat API
+  description: |
+    Privacy-first predictive notarization API.
+
+    The server stores SHA-256 hashes and cryptographic proofs only — never plaintext
+    content, private keys, or raw email addresses. All encryption happens client-side.
+
+    **Rate limits** (per IP):
+    - `POST /api/predictions/register` and `POST /api/waitlist`: 10 req/min
+    - `POST /api/predictions/claim` and `POST /api/predictions/:id/reveal`: 5 req/hour
+    - GET endpoints: 100 req/min
+  version: "2.0"
+  contact:
+    url: https://yousaidthat.org
+
+servers:
+  - url: https://yousaidthat.org
+    description: Production
+
+tags:
+  - name: predictions
+    description: Prediction registration, verification, and reveal
+  - name: attestations
+    description: Public authorship claims
+  - name: waitlist
+    description: Pre-launch waitlist
+  - name: admin
+    description: Internal admin endpoints (requires X-Admin-Secret header)
+  - name: cron
+    description: Cron trigger endpoints (requires Authorization Bearer header)
+  - name: health
+    description: Health check
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/predictions/register:
+    post:
+      tags: [predictions]
+      summary: Register a prediction hash
+      description: |
+        Registers a SHA-256 hash on the server. Triggers:
+        - RFC 3161 TSA token generation (synchronous, Actalis)
+        - OpenTimestamps submission to Alice + Bob calendars (async)
+        - Arweave permanent storage upload (async)
+        - Email reminder queue entry if `email_hash` provided
+
+        If the hash already exists, returns the existing record (idempotent).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Prediction registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "200":
+          description: Hash already registered (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/predictions/public:
+    get:
+      tags: [predictions]
+      summary: Community feed
+      description: Returns public predictions (is_public=true, mode=proof_of_existence).
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 50
+        - name: keyword
+          in: query
+          schema:
+            type: string
+        - name: year
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paginated public predictions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  predictions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PublicPrediction"
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+
+  /api/predictions/verify:
+    get:
+      tags: [predictions]
+      summary: Verify a prediction by hash
+      parameters:
+        - name: hash
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{64}$"
+            example: "a3f9c2d1e5b7f0123456789abcdef0123456789abcdef0123456789abcdef01"
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/VerifyFound"
+                  - $ref: "#/components/schemas/VerifyNotFound"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/predictions/{id}:
+    get:
+      tags: [predictions]
+      summary: Get prediction metadata
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Prediction metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PredictionMetadata"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/predictions/{id}/ots-status:
+    get:
+      tags: [predictions]
+      summary: Poll OTS confirmation status
+      description: |
+        Frontend polls this endpoint after registration to detect when OTS
+        confirmation is complete. On confirmation, the user is prompted to
+        re-download an updated .capsule with the completed OTS proof.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OTS status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ots_status:
+                    type: string
+                    enum: [pending, confirmed, failed]
+                  bitcoin_block:
+                    type: integer
+                    nullable: true
+                  ots_proof:
+                    type: string
+                    format: base64
+                    nullable: true
+                    description: Base64 OTS proof blob (present when confirmed)
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/predictions/{id}/reveal:
+    post:
+      tags: [predictions]
+      summary: Reveal content after unlock
+      description: |
+        Called after the user successfully decrypts their .capsule locally.
+        If `content` is provided, the server verifies SHA-256(content) === stored hash.
+        Setting `is_public: true` publishes the prediction to the community feed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                  maxLength: 10000
+                  nullable: true
+                  description: Plaintext to store (SHA-256 must match stored hash)
+                is_public:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Reveal successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  is_public:
+                    type: boolean
+                  content:
+                    type: string
+                    nullable: true
+        "400":
+          description: Content hash mismatch or validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/predictions/claim:
+    post:
+      tags: [predictions]
+      summary: Claim authorship with RSA-PSS attestation
+      description: |
+        Submit a public identity claim for a prediction. The server verifies:
+        1. The prediction exists
+        2. Current year >= target_year (server-side year gate)
+        3. RSA-PSS signature is valid: verify(signature, hash, public_key)
+        4. No existing attestation for this prediction (one claim per hash)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimRequest"
+      responses:
+        "201":
+          description: Attestation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          description: Year gate not met or signature invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/attestations/{id}:
+    get:
+      tags: [attestations]
+      summary: Get public attestation data
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Attestation data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttestationData"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/waitlist:
+    post:
+      tags: [waitlist]
+      summary: Waitlist signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "201":
+          description: Added to waitlist
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Added to waitlist
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/admin/predictions:
+    get:
+      tags: [admin]
+      summary: List all predictions (admin)
+      security:
+        - AdminSecret: []
+      responses:
+        "200":
+          description: All predictions
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/AdminNotConfigured"
+
+  /api/admin/stats:
+    get:
+      tags: [admin]
+      summary: Platform statistics (admin)
+      security:
+        - AdminSecret: []
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_predictions:
+                    type: integer
+                  ots_confirmed:
+                    type: integer
+                  ots_pending:
+                    type: integer
+                  total_attestations:
+                    type: integer
+                  waitlist_count:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/cron/ots-poll:
+    get:
+      tags: [cron]
+      summary: Trigger OTS confirmation polling
+      description: Called by Supabase pg_cron every 6 hours. Upgrades pending OTS proofs.
+      security:
+        - CronBearer: []
+      responses:
+        "200":
+          description: Polling complete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  processed:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/CronNotConfigured"
+
+  /api/cron/arweave-retry:
+    get:
+      tags: [cron]
+      summary: Retry failed Arweave uploads
+      description: Called by Supabase pg_cron every hour.
+      security:
+        - CronBearer: []
+      responses:
+        "200":
+          description: Retry complete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  succeeded:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/CronNotConfigured"
+
+components:
+  securitySchemes:
+    AdminSecret:
+      type: apiKey
+      in: header
+      name: X-Admin-Secret
+    CronBearer:
+      type: http
+      scheme: bearer
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [hash, mode, target_year]
+      properties:
+        hash:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: SHA-256 of original plaintext (64 lowercase hex chars)
+        mode:
+          type: string
+          enum: [proof_of_existence, sealed_prediction]
+        target_year:
+          type: integer
+          minimum: 2026
+          maximum: 2076
+          description: Year the prediction is sealed until
+        keywords:
+          type: array
+          items:
+            type: string
+            maxLength: 30
+          maxItems: 3
+        email_hash:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          nullable: true
+          description: SHA-256 of lowercase-trimmed email — never the raw address
+        is_public:
+          type: boolean
+          default: false
+        drand_round:
+          type: integer
+          format: int64
+          nullable: true
+          description: drand quicknet round number (sealed_prediction only)
+        target_datetime:
+          type: string
+          format: date-time
+          nullable: true
+          description: Exact unlock datetime (sealed_prediction only)
+
+    RegisterResponse:
+      type: object
+      properties:
+        prediction_id:
+          type: string
+          format: uuid
+        hash:
+          type: string
+        ots_status:
+          type: string
+          enum: [pending, confirmed, failed]
+        tsa_token:
+          type: string
+          description: Base64-encoded RFC 3161 TSA response token
+        created_at:
+          type: string
+          format: date-time
+
+    PublicPrediction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        hash_preview:
+          type: string
+          description: First 8 chars of the hash
+          example: "a3f9c2d1"
+        target_year:
+          type: integer
+        keywords:
+          type: array
+          items:
+            type: string
+        mode:
+          type: string
+          enum: [proof_of_existence, sealed_prediction]
+        content:
+          type: string
+          nullable: true
+          description: Revealed content (only present after /reveal)
+        created_at:
+          type: string
+          format: date-time
+
+    VerifyFound:
+      type: object
+      properties:
+        found:
+          type: boolean
+          example: true
+        prediction_id:
+          type: string
+          format: uuid
+        hash:
+          type: string
+        mode:
+          type: string
+          enum: [proof_of_existence, sealed_prediction]
+        target_year:
+          type: integer
+        keywords:
+          type: array
+          items:
+            type: string
+        ots_confirmed:
+          type: boolean
+        bitcoin_block:
+          type: integer
+          nullable: true
+        timestamp_utc:
+          type: string
+          format: date-time
+        tsa_token:
+          type: string
+          nullable: true
+          description: Base64 RFC 3161 token
+        ots_proof:
+          type: string
+          nullable: true
+          description: Base64 OTS proof blob
+
+    VerifyNotFound:
+      type: object
+      properties:
+        found:
+          type: boolean
+          example: false
+
+    PredictionMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        hash:
+          type: string
+        mode:
+          type: string
+          enum: [proof_of_existence, sealed_prediction]
+        target_year:
+          type: integer
+        keywords:
+          type: array
+          items:
+            type: string
+        ots_status:
+          type: string
+          enum: [pending, confirmed, failed]
+        is_public:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    ClaimRequest:
+      type: object
+      required: [hash, public_key, signature, display_name]
+      properties:
+        hash:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        public_key:
+          type: string
+          maxLength: 5000
+          description: RSA-PSS 2048 public key in PEM format
+        signature:
+          type: string
+          maxLength: 2000
+          description: Base64 RSA-PSS signature of hash using private key (SHA-256, saltLength=32)
+        display_name:
+          type: string
+          maxLength: 100
+
+    ClaimResponse:
+      type: object
+      properties:
+        attestation_id:
+          type: string
+          format: uuid
+        attestation_url:
+          type: string
+          format: uri
+          example: "https://yousaidthat.org/attestation/uuid"
+        display_name:
+          type: string
+        hash:
+          type: string
+        timestamp_verified:
+          type: string
+          format: date-time
+        bitcoin_block:
+          type: integer
+          nullable: true
+
+    AttestationData:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        prediction_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        public_key:
+          type: string
+        hash:
+          type: string
+        target_year:
+          type: integer
+        ots_confirmed:
+          type: boolean
+        bitcoin_block:
+          type: integer
+          nullable: true
+        timestamp_utc:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Too many requests
+      headers:
+        RateLimit-Limit:
+          schema:
+            type: integer
+        RateLimit-Remaining:
+          schema:
+            type: integer
+        RateLimit-Reset:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    AdminNotConfigured:
+      description: ADMIN_SECRET not configured on server
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CronNotConfigured:
+      description: CRON_SECRET not configured on server
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

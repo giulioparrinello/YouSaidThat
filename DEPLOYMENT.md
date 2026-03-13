@@ -1,0 +1,163 @@
+# Deployment Guide
+
+Step-by-step instructions for deploying YouSaidThat on Vercel + Supabase.
+
+---
+
+## Prerequisites
+
+- Node.js 20+
+- [Vercel CLI](https://vercel.com/docs/cli): `npm i -g vercel`
+- A [Supabase](https://supabase.com) project (free tier is sufficient for MVP)
+- A [Resend](https://resend.com) account (for transactional email)
+- Domain pointed to Vercel (optional but required for production emails)
+
+---
+
+## 1. Supabase setup
+
+1. Create a new project at [supabase.com](https://supabase.com).
+2. Go to **Settings → Database → Connection string → URI** and copy the connection string (use the **pooled** connection on port `6543` for serverless).
+3. From your local repo, push the schema:
+   ```bash
+   DATABASE_URL=<your-supabase-url> npm run db:push
+   ```
+4. Verify the tables exist in the Supabase **Table Editor**: `predictions`, `attestations`, `email_queue`, `waitlist`.
+
+---
+
+## 2. Environment variables
+
+Set the following variables in the **Vercel dashboard** under Project → Settings → Environment Variables.
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | Supabase pooled connection string (port 6543) |
+| `ADMIN_SECRET` | Yes | Random 32+ char string — protects `/api/admin/*` endpoints |
+| `CRON_SECRET` | Yes | Random 32+ char string — protects `/api/cron/*` endpoints |
+| `RESEND_API_KEY` | Yes (for email) | Resend API key (`re_...`) |
+| `EMAIL_FROM` | Yes (for email) | Verified sender address, e.g. `noreply@yousaidthat.org` |
+| `OTS_CALENDAR_URL_1` | No | Default: `https://alice.btc.calendar.opentimestamps.org` |
+| `OTS_CALENDAR_URL_2` | No | Default: `https://bob.btc.calendar.opentimestamps.org` |
+| `TSA_URL` | No | Default: `https://tsa.actalis.it/TSA/tss-usr-gen` |
+| `ARWEAVE_KEY_JSON` | No | Arweave wallet JSON (stringified) — for permanent proof storage |
+| `ARWEAVE_HOST` | No | Default: `arweave.net` |
+| `NODE_ENV` | No | Set to `production` (Vercel sets this automatically) |
+
+> `VITE_API_URL` is **not needed** on Vercel — the API and frontend share the same origin.
+
+Generate secrets with:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+---
+
+## 3. Vercel deployment
+
+```bash
+# Link to your Vercel project (first time only)
+vercel link
+
+# Deploy to production
+vercel --prod
+```
+
+Or connect your GitHub repo to Vercel for automatic deploys on push to `main`.
+
+The `vercel.json` at the root configures:
+- `@vercel/node` build for `server/index.ts`
+- Static files from `dist/public/`
+- Security headers (X-Frame-Options, HSTS, CSP, etc.)
+
+---
+
+## 4. Domain setup
+
+1. Go to Vercel → Project → Settings → Domains.
+2. Add your domain (e.g. `yousaidthat.org`) and follow the DNS instructions.
+3. Vercel provisions a TLS certificate automatically.
+
+---
+
+## 5. Resend domain verification (required for emails)
+
+This is a **blocker** for production emails. Without a verified sender domain, Resend will not deliver email.
+
+1. Go to [resend.com/domains](https://resend.com/domains) → Add Domain.
+2. Add the DNS records Resend provides (SPF, DKIM, DMARC) to your domain registrar.
+3. Wait for verification (usually under 5 minutes).
+4. Set `EMAIL_FROM` to an address on the verified domain (e.g. `noreply@yousaidthat.org`).
+
+---
+
+## 6. Cron jobs (Supabase pg_cron)
+
+Vercel Hobby plan does not support Vercel Cron. Use Supabase pg_cron to trigger the cron endpoints instead.
+
+In the Supabase SQL editor, enable pg_cron and schedule:
+
+```sql
+-- Enable pg_cron (run once)
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- OTS polling every 6 hours
+SELECT cron.schedule(
+  'ots-poll',
+  '0 */6 * * *',
+  $$
+    SELECT net.http_get(
+      'https://yousaidthat.org/api/cron/ots-poll',
+      headers := '{"Authorization": "Bearer YOUR_CRON_SECRET"}'::jsonb
+    );
+  $$
+);
+
+-- Arweave retry every hour
+SELECT cron.schedule(
+  'arweave-retry',
+  '0 * * * *',
+  $$
+    SELECT net.http_get(
+      'https://yousaidthat.org/api/cron/arweave-retry',
+      headers := '{"Authorization": "Bearer YOUR_CRON_SECRET"}'::jsonb
+    );
+  $$
+);
+```
+
+Replace `YOUR_CRON_SECRET` with the value you set in Vercel env vars. Enable `pg_net` extension if `net.http_get` is not available.
+
+---
+
+## 7. Post-deploy checklist
+
+Run these after every production deploy:
+
+- [ ] `curl https://yousaidthat.org/health` → `{"status":"ok"}`
+- [ ] Register a test hash via `POST /api/predictions/register` → 201 with `tsa_token`
+- [ ] Verify it via `GET /api/predictions/verify?hash=<hash>` → `found: true`
+- [ ] Check OTS status via `GET /api/predictions/:id/ots-status` → `pending`
+- [ ] Trigger cron manually: `GET /api/cron/ots-poll` with `Authorization: Bearer <CRON_SECRET>`
+- [ ] Send a test waitlist email (requires verified Resend domain)
+- [ ] Check Supabase table has new rows in `predictions` and `email_queue`
+
+---
+
+## Troubleshooting
+
+**Build fails on Vercel**
+- Check that `dist/public/` is generated by `npm run build` before `@vercel/node` processes `server/index.ts`
+- See `script/build.ts` for the build pipeline
+
+**`DATABASE_URL` connection errors**
+- Use the **pooled** connection string (port 6543), not the direct connection (port 5432), for serverless environments
+- Ensure your Supabase project IP allowlist includes Vercel's IP ranges (or set to allow all)
+
+**Rate limiter sees wrong IPs**
+- `app.set("trust proxy", 1)` is already configured — ensure Vercel is the only proxy in front of the app
+
+**Emails not sending**
+- Verify `EMAIL_FROM` domain is verified on Resend
+- Check `RESEND_API_KEY` is set and valid
+- Inspect Resend dashboard for delivery logs

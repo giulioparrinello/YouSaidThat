@@ -187,10 +187,15 @@ export default function Admin() {
                   <p className="text-[10px] font-mono text-[#999] mt-0.5">
                     {stats.arweaveBalance.winston} winston
                   </p>
+                  {stats.arweaveAddress && (
+                    <p className="text-[10px] font-mono text-[#BBB] mt-2 break-all">
+                      {stats.arweaveAddress}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2">
                   <a
-                    href="https://viewblock.io/arweave"
+                    href={`https://viewblock.io/arweave/address/${stats.arweaveAddress ?? ""}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 h-9 px-4 rounded-full bg-[#111] text-white text-xs font-medium hover:bg-[#222] transition-colors"

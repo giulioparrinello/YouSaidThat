@@ -7,6 +7,9 @@ import { createServer } from "http";
 const app = express();
 const httpServer = createServer(app);
 
+// Trust Vercel / reverse-proxy headers so rate-limiters see the real client IP
+app.set("trust proxy", 1);
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -19,28 +22,41 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: [
+          "'self'",
+          // unsafe-inline needed only for Vite HMR in development
+          ...(process.env.NODE_ENV !== "production" ? ["'unsafe-inline'"] : []),
+        ],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:", "blob:"],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'", "data:"],
+        connectSrc: ["'self'", "https://api.drand.sh"],
+        fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
       },
     },
     crossOriginEmbedderPolicy: false,
+    hsts: { maxAge: 31536000, includeSubDomains: true },
   })
 );
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-const ALLOWED_ORIGINS =
-  process.env.NODE_ENV === "production"
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((s) => s.trim())
+  : process.env.NODE_ENV === "production"
     ? ["https://yousaidthat.org", "https://www.yousaidthat.org"]
     : ["http://localhost:5000", "http://127.0.0.1:5000"];
 
+function isAllowedOrigin(origin: string): boolean {
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  // Allow Vercel preview deployments
+  if (/^https:\/\/[\w-]+-giulioparrinellos-projects\.vercel\.app$/.test(origin)) return true;
+  return false;
+}
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");

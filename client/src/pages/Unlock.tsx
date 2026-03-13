@@ -14,10 +14,12 @@ import {
   User,
   ExternalLink,
   FileText,
+  Globe,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
   decryptContent,
+  tlockDecrypt,
   hashText,
   signHash,
   loadCapsule,
@@ -32,6 +34,8 @@ export default function UnlockPage() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [decrypted, setDecrypted] = useState<string | null>(null);
   const [decryptError, setDecryptError] = useState<string | null>(null);
+  const [decrypting, setDecrypting] = useState(false);
+  const [decryptStep, setDecryptStep] = useState("");
   const [hashMatch, setHashMatch] = useState<boolean | null>(null);
   const [flickerInput, setFlickerInput] = useState("");
   const [flickerResult, setFlickerResult] = useState<boolean | null>(null);
@@ -39,6 +43,10 @@ export default function UnlockPage() {
   const [claiming, setClaiming] = useState(false);
   const [claimResult, setClaimResult] = useState<{ url: string } | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [publishPublic, setPublishPublic] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<boolean | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
   const [, setLocation] = useLocation();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -51,6 +59,7 @@ export default function UnlockPage() {
     setHashMatch(null);
     setFlickerResult(null);
     setClaimResult(null);
+    setPublishResult(null);
     try {
       const c = await loadCapsule(file);
       setCapsule(c);
@@ -68,18 +77,45 @@ export default function UnlockPage() {
 
   const handleDecrypt = async () => {
     if (!capsule) return;
+    setDecrypting(true);
+    setDecryptError(null);
     try {
-      const plaintext = await decryptContent(
-        capsule.encrypted_content!,
-        capsule.nonce!,
-        capsule.encryption_key!
-      );
+      let plaintext: string;
+
+      if (capsule.lock_mode === "tlock" && capsule.tlock_ciphertext) {
+        // v2: drand timelock decrypt (requires network call to drand API)
+        setDecryptStep("Fetching drand beacon…");
+        plaintext = await tlockDecrypt(capsule.tlock_ciphertext);
+      } else {
+        // v1: local AES-256-GCM decrypt
+        setDecryptStep("Decrypting…");
+        plaintext = await decryptContent(
+          capsule.encrypted_content!,
+          capsule.nonce!,
+          capsule.encryption_key!
+        );
+      }
+
       setDecrypted(plaintext);
-      // Verify hash
       const h = await hashText(plaintext);
       setHashMatch(h === capsule.hash);
-    } catch {
-      setDecryptError("Decryption failed. The capsule file may be corrupted.");
+    } catch (err: any) {
+      const msg = err?.message ?? "";
+      if (
+        msg.includes("round") ||
+        msg.includes("404") ||
+        msg.includes("not found") ||
+        msg.includes("future")
+      ) {
+        setDecryptError(
+          "The drand beacon for this round is not available yet — the unlock time has not passed."
+        );
+      } else {
+        setDecryptError("Decryption failed. The capsule file may be corrupted.");
+      }
+    } finally {
+      setDecrypting(false);
+      setDecryptStep("");
     }
   };
 
@@ -112,14 +148,58 @@ export default function UnlockPage() {
     }
   };
 
-  const isLocked = capsule ? currentYear < capsule.target_year : false;
-  const yearsLeft = capsule ? capsule.target_year - currentYear : 0;
-  const progress = capsule
-    ? Math.min(
-        100,
-        Math.max(0, ((currentYear - (capsule.target_year - 10)) / 10) * 100)
-      )
-    : 0;
+  const handlePublish = async () => {
+    if (!capsule || !capsule.prediction_id || !decrypted) return;
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      await api.revealPrediction(capsule.prediction_id, {
+        content: decrypted,
+        is_public: true,
+      });
+      setPublishResult(true);
+    } catch (err: any) {
+      setPublishError(err?.message ?? "Publish failed.");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  // Lock logic: v2 tlock uses target_datetime; v1 uses target_year
+  const isLocked = capsule
+    ? capsule.lock_mode === "tlock" && capsule.target_datetime
+      ? Date.now() < new Date(capsule.target_datetime).getTime()
+      : currentYear < capsule.target_year
+    : false;
+
+  const isTlock = capsule?.lock_mode === "tlock";
+
+  // Time display for locked state
+  const lockedUntilDisplay = capsule
+    ? isTlock && capsule.target_datetime
+      ? new Date(capsule.target_datetime).toLocaleString(undefined, {
+          dateStyle: "long",
+          timeStyle: "short",
+        })
+      : `January 1, ${capsule.target_year}`
+    : "";
+
+  // Progress bar calculation
+  const progress = (() => {
+    if (!capsule) return 0;
+    if (isTlock && capsule.target_datetime && capsule.created_at) {
+      const start = new Date(capsule.created_at).getTime();
+      const end = new Date(capsule.target_datetime).getTime();
+      const now = Date.now();
+      return Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
+    }
+    return Math.min(
+      100,
+      Math.max(0, ((currentYear - (capsule.target_year - 10)) / 10) * 100)
+    );
+  })();
+
+  const yearsLeft = capsule && !isTlock ? capsule.target_year - currentYear : 0;
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] text-[#111111] flex flex-col font-sans">
@@ -213,10 +293,30 @@ export default function UnlockPage() {
                     </div>
                     <div>
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                        Target Year
+                        Unlocks
                       </p>
-                      <p className="font-medium">{capsule.target_year}</p>
+                      <p className="font-medium">
+                        {isTlock && capsule.target_datetime
+                          ? new Date(capsule.target_datetime).toLocaleString(undefined, {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })
+                          : capsule.target_year}
+                      </p>
                     </div>
+                    {isTlock && (
+                      <div className="col-span-2">
+                        <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
+                          Encryption
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <Lock className="w-3 h-3 text-[#6366F1]" />
+                          <p className="text-xs font-mono text-[#6366F1]">
+                            drand IBE timelock · round #{capsule.drand_round?.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                     {capsule.keywords?.length > 0 && (
                       <div className="col-span-2">
                         <p className="text-[10px] font-mono text-[#BBB] uppercase mb-1">
@@ -271,12 +371,21 @@ export default function UnlockPage() {
                     <div>
                       <p className="font-bold text-lg">Prediction locked</p>
                       <p className="text-[#666] text-sm mt-1">
-                        Returns in{" "}
-                        <span className="font-semibold text-[#111]">
-                          {yearsLeft} {yearsLeft === 1 ? "year" : "years"}
-                        </span>{" "}
-                        — {capsule.target_year}
+                        {isTlock ? (
+                          <>Sealed until <span className="font-semibold text-[#111]">{lockedUntilDisplay}</span></>
+                        ) : (
+                          <>Returns in{" "}
+                          <span className="font-semibold text-[#111]">
+                            {yearsLeft} {yearsLeft === 1 ? "year" : "years"}
+                          </span>{" "}
+                          — {capsule.target_year}</>
+                        )}
                       </p>
+                      {isTlock && (
+                        <p className="text-[11px] text-[#999] mt-2">
+                          The drand randomness needed to decrypt this capsule will only be published after that moment.
+                        </p>
+                      )}
                     </div>
                     {/* Progress bar */}
                     <div className="w-full space-y-1">
@@ -288,13 +397,9 @@ export default function UnlockPage() {
                           className="h-full bg-gradient-to-r from-[#6366F1]/40 to-[#6366F1] rounded-full"
                         />
                       </div>
-                      <div className="flex justify-between text-[10px] font-mono text-[#CCC]">
-                        <span>{capsule.target_year - 10}</span>
-                        <span>{capsule.target_year}</span>
-                      </div>
                     </div>
                     <p className="text-xs text-[#999]">
-                      Come back on January 1, {capsule.target_year} to unlock.
+                      Come back on {lockedUntilDisplay} to unlock.
                     </p>
                   </motion.div>
                 )}
@@ -309,7 +414,9 @@ export default function UnlockPage() {
                     <div className="flex items-center gap-2 p-4 rounded-2xl bg-green-50 border border-green-200">
                       <Unlock className="w-4 h-4 text-green-600" />
                       <p className="text-sm text-green-800 font-medium">
-                        It's {currentYear} — this prediction can be unlocked
+                        {isTlock
+                          ? "Timelock expired — this prediction can now be decrypted"
+                          : `It's ${currentYear} — this prediction can be unlocked`}
                       </p>
                     </div>
 
@@ -323,11 +430,26 @@ export default function UnlockPage() {
                         )}
                         <button
                           onClick={handleDecrypt}
-                          className="w-full h-12 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] transition-colors"
+                          disabled={decrypting}
+                          className="w-full h-12 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] disabled:opacity-60 transition-colors"
                         >
-                          <Eye className="w-4 h-4" />
-                          Decrypt Content
+                          {decrypting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span className="font-mono text-sm">{decryptStep || "Decrypting…"}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="w-4 h-4" />
+                              {isTlock ? "Decrypt via drand" : "Decrypt Content"}
+                            </>
+                          )}
                         </button>
+                        {isTlock && !decrypting && (
+                          <p className="text-[11px] text-center text-[#999]">
+                            Requires an internet connection to fetch the drand beacon.
+                          </p>
+                        )}
                       </>
                     ) : (
                       <motion.div
@@ -378,6 +500,30 @@ export default function UnlockPage() {
                           </div>
                         </div>
 
+                        {/* TSA Timestamp — prominente */}
+                        {capsule.tsa_token && capsule.created_at && (
+                          <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                              <p className="text-xs font-semibold text-indigo-800">Certificazione Temporale (RFC 3161)</p>
+                            </div>
+                            <p className="text-sm font-mono text-indigo-900 font-medium">
+                              Detto il:{" "}
+                              {new Date(capsule.created_at).toLocaleString(undefined, {
+                                day: "numeric",
+                                month: "long",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                timeZoneName: "short",
+                              })}
+                            </p>
+                            <p className="text-[10px] text-indigo-600 font-mono">
+                              Actalis CA · SHA-256 · {capsule.tsa_token.slice(0, 20)}…
+                            </p>
+                          </div>
+                        )}
+
                         {/* Proof badges */}
                         <div className="flex flex-wrap gap-2">
                           {capsule.tsa_token && (
@@ -392,6 +538,12 @@ export default function UnlockPage() {
                               OTS Proof
                             </span>
                           )}
+                          {isTlock && (
+                            <span className="flex items-center gap-1.5 text-[10px] font-mono text-[#6366F1] bg-[#6366F1]/5 border border-[#6366F1]/20 px-2.5 py-1 rounded-full">
+                              <Lock className="w-3 h-3" />
+                              drand IBE timelock
+                            </span>
+                          )}
                         </div>
 
                         {hashMatch && (
@@ -402,6 +554,8 @@ export default function UnlockPage() {
                                 hash: capsule.hash,
                                 mode: capsule.mode,
                                 targetYear: capsule.target_year,
+                                targetDatetime: capsule.target_datetime ?? null,
+                                drandRound: capsule.drand_round ?? null,
                                 keywords: capsule.keywords,
                                 createdAt: capsule.created_at,
                                 tsaToken: capsule.tsa_token,
@@ -414,6 +568,88 @@ export default function UnlockPage() {
                             <FileText className="w-4 h-4" />
                             Download Certificate (PDF)
                           </button>
+                        )}
+
+                        {/* ── Publish to community (optional) ── */}
+                        {hashMatch && capsule.prediction_id && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className="bg-white border border-[#E5E5E5] rounded-3xl p-6 space-y-4"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Globe className="w-4 h-4 text-[#6366F1]" />
+                              <p className="font-semibold text-sm">
+                                Publish to community (optional)
+                              </p>
+                            </div>
+                            <p className="text-xs text-[#666] leading-relaxed">
+                              Make this prediction public on the community feed.
+                              Your original text and timestamp proof will be visible to everyone.
+                            </p>
+
+                            {publishResult === null && (
+                              <>
+                                <button
+                                  onClick={() => setPublishPublic((v) => !v)}
+                                  className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all ${
+                                    publishPublic
+                                      ? "border-[#6366F1] bg-[#6366F1]/5"
+                                      : "border-[#E5E5E5] bg-[#FAFAFA] hover:border-[#CCC]"
+                                  }`}
+                                >
+                                  <span className={`text-sm font-medium ${publishPublic ? "text-[#6366F1]" : "text-[#444]"}`}>
+                                    Make prediction public
+                                  </span>
+                                  <div
+                                    className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${
+                                      publishPublic ? "bg-[#6366F1]" : "bg-[#E5E5E5]"
+                                    }`}
+                                  >
+                                    <div
+                                      className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                                        publishPublic ? "translate-x-4" : "translate-x-0"
+                                      }`}
+                                    />
+                                  </div>
+                                </button>
+
+                                {publishPublic && (
+                                  <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: "auto" }}
+                                    className="space-y-3"
+                                  >
+                                    {publishError && (
+                                      <p className="text-xs text-red-600">{publishError}</p>
+                                    )}
+                                    <button
+                                      onClick={handlePublish}
+                                      disabled={publishing}
+                                      className="w-full h-11 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] disabled:opacity-50 transition-colors"
+                                    >
+                                      {publishing ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <Globe className="w-4 h-4" />
+                                          Publish now
+                                        </>
+                                      )}
+                                    </button>
+                                  </motion.div>
+                                )}
+                              </>
+                            )}
+
+                            {publishResult === true && (
+                              <div className="flex items-center gap-2 text-green-700 p-3 rounded-xl bg-green-50 border border-green-200">
+                                <CheckCircle2 className="w-4 h-4" />
+                                <p className="text-sm font-medium">Published to community feed</p>
+                              </div>
+                            )}
+                          </motion.div>
                         )}
                       </motion.div>
                     )}
@@ -495,6 +731,8 @@ export default function UnlockPage() {
                                 hash: capsule.hash,
                                 mode: capsule.mode,
                                 targetYear: capsule.target_year,
+                                targetDatetime: capsule.target_datetime ?? null,
+                                drandRound: capsule.drand_round ?? null,
                                 keywords: capsule.keywords,
                                 createdAt: capsule.created_at,
                                 tsaToken: capsule.tsa_token,

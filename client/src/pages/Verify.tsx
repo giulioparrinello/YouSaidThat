@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -14,7 +14,7 @@ import {
   FileText,
   Download,
 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { api, type VerifyResponse } from "@/lib/api";
 import { loadCapsule } from "@/lib/crypto";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
@@ -47,13 +47,25 @@ function OtsStatusBadge({ status }: { status: string }) {
 }
 
 export default function Verify() {
+  const search = useSearch();
   const [tab, setTab] = useState<Tab>("hash");
-  const [hashInput, setHashInput] = useState("");
+  const [hashInput, setHashInput] = useState(() => {
+    const params = new URLSearchParams(search);
+    return params.get("hash") ?? "";
+  });
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<VerifyResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const h = params.get("hash");
+    if (h && /^[a-f0-9]{64}$/.test(h)) {
+      verify(h);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const verify = async (hash: string) => {
     if (!/^[a-f0-9]{64}$/.test(hash)) {

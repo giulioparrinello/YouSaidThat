@@ -85,13 +85,13 @@ async function uploadToArweave(
  */
 export async function uploadContent(
   content: string,
-  tags: { hash: string; mode: string; targetYear: string }
+  tags: { hash: string; mode: string; targetYear?: string }
 ): Promise<string | null> {
   const arweaveTags = [
     { name: "App-Name", value: "YouSaidThat" },
     { name: "Hash", value: tags.hash },
     { name: "Mode", value: tags.mode },
-    { name: "Target-Year", value: tags.targetYear },
+    ...(tags.targetYear ? [{ name: "Target-Year", value: tags.targetYear }] : []),
   ];
 
   return uploadToArweave(content, arweaveTags);
@@ -116,6 +116,22 @@ export async function getArweaveBalance(): Promise<ArweaveBalance> {
   } catch (err) {
     console.error("[arweave] Failed to get balance:", err);
     return { ar: "error", winston: "error" };
+  }
+}
+
+/**
+ * Derive the Arweave wallet address from the configured JWK.
+ * Returns null if ARWEAVE_KEY_JSON is not set.
+ */
+export async function getArweaveAddress(): Promise<string | null> {
+  const key = getWalletKey();
+  if (!key) return null;
+  try {
+    const arweave = await getArweaveClient();
+    return await arweave.wallets.jwkToAddress(key);
+  } catch (err) {
+    console.error("[arweave] Failed to derive address:", err);
+    return null;
   }
 }
 
@@ -154,7 +170,7 @@ export async function retryPendingUploads(): Promise<number> {
       const txId = await uploadContent(content, {
         hash: prediction.hash,
         mode: prediction.mode,
-        targetYear: String(prediction.target_year),
+        targetYear: prediction.target_year ? String(prediction.target_year) : undefined,
       });
 
       if (txId) {
