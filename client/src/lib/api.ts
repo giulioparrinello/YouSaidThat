@@ -83,7 +83,8 @@ export interface VerifyResponse {
   prediction_id?: string;
   hash?: string;
   mode?: string;
-  target_year?: number;
+  target_year?: number | null;
+  target_datetime?: string | null;
   keywords?: string[] | null;
   ots_confirmed?: boolean;
   ots_status?: string;

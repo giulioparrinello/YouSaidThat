@@ -9,31 +9,30 @@ const CALENDARS = [
 ];
 
 // ─── Submit hash to OTS calendar servers ──────────────────────────────────────
-// Returns base64-encoded incomplete proof from the first successful calendar.
+// Creates a proper DetachedTimestampFile using the OTS library and serializes it.
+// This produces a valid .ots blob that can later be deserialized and upgraded.
 export async function submitToOts(hashHex: string): Promise<string | null> {
-  const hashBytes = Buffer.from(hashHex, "hex");
+  try {
+    const hashBytes = Buffer.from(hashHex, "hex");
 
-  for (const calendarUrl of CALENDARS) {
-    try {
-      const response = await fetch(`${calendarUrl}/digest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: hashBytes,
-      });
+    // Build a DetachedTimestampFile from the pre-computed SHA-256 hash
+    const f = OpenTimestamps.DetachedTimestampFile.fromHash(
+      new OpenTimestamps.Ops.OpSHA256(),
+      hashBytes
+    );
 
-      if (response.ok) {
-        const proofBytes = Buffer.from(await response.arrayBuffer());
-        console.log(`[ots] Submitted to ${calendarUrl}: ${proofBytes.length} bytes`);
-        return proofBytes.toString("base64");
-      }
+    // Stamp: submits the Merkle tip to calendars and merges their response into f
+    // m=1 means at least 1 calendar must reply
+    await OpenTimestamps.stamp(f, { calendars: CALENDARS, m: 1 });
 
-      console.error(`[ots] ${calendarUrl} returned ${response.status}`);
-    } catch (err) {
-      console.error(`[ots] Error submitting to ${calendarUrl}:`, err);
-    }
+    // Serialize the full OTS file (can later be deserialised + upgraded)
+    const otsBytes: Buffer = f.serializeToBytes();
+    console.log(`[ots] Stamped hash ${hashHex.slice(0, 8)}…: ${otsBytes.length} bytes`);
+    return otsBytes.toString("base64");
+  } catch (err) {
+    console.error("[ots] submitToOts error:", err);
+    return null;
   }
-
-  return null;
 }
 
 // ─── Try to upgrade a pending OTS proof ───────────────────────────────────────

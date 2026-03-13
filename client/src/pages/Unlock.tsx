@@ -165,11 +165,13 @@ export default function UnlockPage() {
     }
   };
 
-  // Lock logic: v2 tlock uses target_datetime; v1 uses target_year
+  // Lock logic: v2 tlock uses target_datetime; v1 uses target_year; null = no gate (unlocked)
   const isLocked = capsule
     ? capsule.lock_mode === "tlock" && capsule.target_datetime
       ? Date.now() < new Date(capsule.target_datetime).getTime()
-      : currentYear < capsule.target_year
+      : capsule.target_year != null
+      ? currentYear < capsule.target_year
+      : false
     : false;
 
   const isTlock = capsule?.lock_mode === "tlock";
@@ -199,7 +201,7 @@ export default function UnlockPage() {
     );
   })();
 
-  const yearsLeft = capsule && !isTlock ? capsule.target_year - currentYear : 0;
+  const yearsLeft = capsule && !isTlock && capsule.target_year != null ? capsule.target_year - currentYear : 0;
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] text-[#111111] flex flex-col font-sans">
@@ -301,7 +303,9 @@ export default function UnlockPage() {
                               dateStyle: "medium",
                               timeStyle: "short",
                             })
-                          : capsule.target_year}
+                          : capsule.target_year != null
+                          ? String(capsule.target_year)
+                          : "No time gate"}
                       </p>
                     </div>
                     {isTlock && (
@@ -553,13 +557,14 @@ export default function UnlockPage() {
                                 predictionId: capsule.prediction_id ?? "unknown",
                                 hash: capsule.hash,
                                 mode: capsule.mode,
-                                targetYear: capsule.target_year,
+                                targetYear: capsule.target_year ?? undefined,
                                 targetDatetime: capsule.target_datetime ?? null,
                                 drandRound: capsule.drand_round ?? null,
                                 keywords: capsule.keywords,
                                 createdAt: capsule.created_at,
                                 tsaToken: capsule.tsa_token,
                                 otsStatus: capsule.ots_proof ? "confirmed" : "pending",
+                                arweaveTxId: capsule.arweave_tx_id ?? undefined,
                                 revealedContent: decrypted ?? undefined,
                               })
                             }
@@ -730,13 +735,14 @@ export default function UnlockPage() {
                                 predictionId: capsule.prediction_id ?? "unknown",
                                 hash: capsule.hash,
                                 mode: capsule.mode,
-                                targetYear: capsule.target_year,
+                                targetYear: capsule.target_year ?? undefined,
                                 targetDatetime: capsule.target_datetime ?? null,
                                 drandRound: capsule.drand_round ?? null,
                                 keywords: capsule.keywords,
                                 createdAt: capsule.created_at,
                                 tsaToken: capsule.tsa_token,
                                 otsStatus: capsule.ots_proof ? "confirmed" : "pending",
+                                arweaveTxId: capsule.arweave_tx_id ?? undefined,
                                 revealedContent: flickerInput.trim(),
                               })
                             }

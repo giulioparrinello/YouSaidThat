@@ -7,8 +7,8 @@ export interface CapsuleData {
   mode: "proof_of_existence" | "sealed_prediction";
   /** Sub-mode for proof_of_existence: cleartext (public) or encrypted (private) */
   visibility: "cleartext" | "encrypted" | null;
-  /** For v1: year gate. For v2 (tlock): derived from target_datetime. */
-  target_year: number;
+  /** For v1: year gate. For v2 (tlock): derived from target_datetime. Null if no time gate. */
+  target_year: number | null;
   /** v2 tlock only: exact unlock datetime, ISO 8601 UTC. */
   target_datetime?: string | null;
   keywords: string[];
@@ -241,7 +241,7 @@ export function downloadCapsule(capsule: CapsuleData, filename?: string): void {
   a.href = url;
   a.download =
     filename ??
-    `yousaidthat-${capsule.target_year}-${capsule.hash.slice(0, 8)}.capsule`;
+    `yousaidthat-${capsule.target_year ?? "notarized"}-${capsule.hash.slice(0, 8)}.capsule`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -254,8 +254,8 @@ export function loadCapsule(file: File): Promise<CapsuleData> {
     reader.onload = (e) => {
       try {
         const raw = JSON.parse(e.target?.result as string);
-        if (!raw.hash || !raw.target_year) {
-          reject(new Error("Invalid capsule: missing required fields"));
+        if (!raw.hash) {
+          reject(new Error("Invalid capsule: missing required fields (hash)"));
           return;
         }
         // Migrate legacy capsules that used 'type' instead of 'mode'

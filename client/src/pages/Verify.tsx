@@ -266,9 +266,15 @@ export default function Verify() {
                       </div>
                       <div>
                         <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                          Target Year
+                          Target
                         </p>
-                        <p className="font-medium">{result.target_year}</p>
+                        <p className="font-medium">
+                          {result.target_datetime
+                            ? new Date(result.target_datetime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+                            : result.target_year
+                            ? String(result.target_year)
+                            : "None"}
+                        </p>
                       </div>
                       {result.keywords && result.keywords.length > 0 && (
                         <div className="col-span-2">

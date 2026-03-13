@@ -39,18 +39,16 @@ const STEPS = ["Mode", "Prediction", "Time-Lock", "Options", "Seal"];
 
 const currentYear = new Date().getFullYear();
 
-// Minimum datetime-local value: 1 hour from now
-function minDatetimeLocal(): string {
-  const d = new Date(Date.now() + 60 * 60 * 1000);
-  // datetime-local format: YYYY-MM-DDTHH:MM
-  return d.toISOString().slice(0, 16);
+// Minimum date: today
+function minDateLocal(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
-// Maximum datetime-local value: 50 years from now
-function maxDatetimeLocal(): string {
+// Maximum date: 50 years from now
+function maxDateLocal(): string {
   const d = new Date();
   d.setFullYear(d.getFullYear() + 50);
-  return d.toISOString().slice(0, 16);
+  return d.toISOString().slice(0, 10);
 }
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
@@ -697,14 +695,29 @@ export default function Create() {
                     <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-3 block">
                       Unlock date &amp; time
                     </label>
-                    <input
-                      type="datetime-local"
-                      value={targetDatetime}
-                      onChange={(e) => setTargetDatetime(e.target.value)}
-                      min={minDatetimeLocal()}
-                      max={maxDatetimeLocal()}
-                      className="w-full h-12 rounded-2xl border border-[#E5E5E5] bg-white px-4 text-sm font-mono text-[#111] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="date"
+                        value={targetDatetime.slice(0, 10)}
+                        onChange={(e) => {
+                          const time = targetDatetime.slice(11, 16) || "00:00";
+                          setTargetDatetime(e.target.value ? e.target.value + "T" + time : "");
+                        }}
+                        min={minDateLocal()}
+                        max={maxDateLocal()}
+                        className="flex-1 h-12 rounded-2xl border border-[#E5E5E5] bg-white px-4 text-sm font-mono text-[#111] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
+                      />
+                      <input
+                        type="time"
+                        value={targetDatetime.slice(11, 16)}
+                        onChange={(e) => {
+                          const date = targetDatetime.slice(0, 10);
+                          if (date) setTargetDatetime(date + "T" + e.target.value);
+                        }}
+                        placeholder="00:00"
+                        className="w-28 h-12 rounded-2xl border border-[#E5E5E5] bg-white px-4 text-sm font-mono text-[#111] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
+                      />
+                    </div>
                     {targetDatetime && (
                       <div className="mt-3 space-y-1">
                         <p className="text-xs text-[#999] font-mono">
@@ -765,14 +778,29 @@ export default function Create() {
                           animate={{ opacity: 1, height: "auto" }}
                           className="mt-3 space-y-2"
                         >
-                          <input
-                            type="datetime-local"
-                            value={poeDatetime}
-                            onChange={(e) => setPoeDatetime(e.target.value)}
-                            min={minDatetimeLocal()}
-                            max={maxDatetimeLocal()}
-                            className="w-full h-12 rounded-2xl border border-[#E5E5E5] bg-white px-4 text-sm font-mono text-[#111] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
-                          />
+                          <div className="flex gap-2">
+                            <input
+                              type="date"
+                              value={poeDatetime.slice(0, 10)}
+                              onChange={(e) => {
+                                const time = poeDatetime.slice(11, 16) || "00:00";
+                                setPoeDatetime(e.target.value ? e.target.value + "T" + time : "");
+                              }}
+                              min={minDateLocal()}
+                              max={maxDateLocal()}
+                              className="flex-1 h-12 rounded-2xl border border-[#E5E5E5] bg-white px-4 text-sm font-mono text-[#111] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
+                            />
+                            <input
+                              type="time"
+                              value={poeDatetime.slice(11, 16)}
+                              onChange={(e) => {
+                                const date = poeDatetime.slice(0, 10);
+                                if (date) setPoeDatetime(date + "T" + e.target.value);
+                              }}
+                              placeholder="00:00"
+                              className="w-28 h-12 rounded-2xl border border-[#E5E5E5] bg-white px-4 text-sm font-mono text-[#111] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
+                            />
+                          </div>
                           {poeDatetime && (
                             <p className="text-xs text-[#999] font-mono">
                               Gate: {new Date(poeDatetime).toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" })}
