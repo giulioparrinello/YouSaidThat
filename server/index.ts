@@ -135,7 +135,10 @@ const _init = (async () => {
   });
 
   if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
+    // On Vercel, static files are served by the CDN (outputDirectory in vercel.json)
+    if (!process.env.VERCEL) {
+      serveStatic(app);
+    }
     // node-cron is not compatible with serverless — crons run via Supabase pg_cron
     if (!process.env.VERCEL) {
       const { startCronJobs } = await import("./services/cron");

@@ -1,13 +1,14 @@
 {
   "version": 2,
   "buildCommand": "tsx script/build.ts",
+  "outputDirectory": "dist/public",
   "functions": {
-    "api/server.js": {
-      "includeFiles": "dist/public/**"
-    }
+    "api/server.js": {}
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/server" }
+    { "source": "/api/:path*", "destination": "/api/server" },
+    { "source": "/health", "destination": "/api/server" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
     {
