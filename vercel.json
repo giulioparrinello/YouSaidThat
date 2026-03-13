@@ -2,9 +2,6 @@
   "version": 2,
   "buildCommand": "tsx script/build.ts",
   "outputDirectory": "dist/public",
-  "functions": {
-    "api/server.js": {}
-  },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/server" },
     { "source": "/health", "destination": "/api/server" },
