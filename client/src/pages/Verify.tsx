@@ -370,7 +370,7 @@ export default function Verify() {
                           predictionId: result.prediction_id ?? "unknown",
                           hash: result.hash ?? "",
                           mode: (result.mode as "proof_of_existence" | "sealed_prediction") ?? "proof_of_existence",
-                          targetYear: result.target_year,
+                          targetYear: result.target_year ?? undefined,
                           keywords: result.keywords ?? [],
                           createdAt: result.timestamp_utc ?? new Date().toISOString(),
                           tsaToken: result.tsa_token,

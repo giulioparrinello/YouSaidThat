@@ -197,7 +197,7 @@ export default function UnlockPage() {
     }
     return Math.min(
       100,
-      Math.max(0, ((currentYear - (capsule.target_year - 10)) / 10) * 100)
+      Math.max(0, ((currentYear - ((capsule.target_year ?? currentYear) - 10)) / 10) * 100)
     );
   })();
 
