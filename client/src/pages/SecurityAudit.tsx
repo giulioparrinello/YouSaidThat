@@ -229,12 +229,12 @@ export default function SecurityAudit() {
               current version. The source code is available for independent
               review at{" "}
               <a
-                href="https://github.com/giulioparrinello/teaserYST"
+                href="https://github.com/giulioparrinello/YouSaidThat"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline"
               >
-                github.com/giulioparrinello/teaserYST
+                github.com/giulioparrinello/YouSaidThat
               </a>
               . If you find a vulnerability, see the{" "}
               <button
@@ -606,7 +606,7 @@ export default function SecurityAudit() {
                 working exploit.
               </p>
               <a
-                href="https://github.com/giulioparrinello/teaserYST/issues"
+                href="https://github.com/giulioparrinello/YouSaidThat/issues"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-xs text-[#6366F1] hover:underline font-medium"
@@ -662,7 +662,7 @@ export default function SecurityAudit() {
               </span>
             </Link>
             <a
-              href="https://github.com/giulioparrinello/teaserYST"
+              href="https://github.com/giulioparrinello/YouSaidThat"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-[#111] transition-colors"

@@ -5,7 +5,7 @@
 ## Project setup
 
 ```bash
-git clone https://github.com/giulioparrinello/teaserYST.git
+git clone https://github.com/giulioparrinello/YouSaidThat.git
 cd teaserYST
 npm install
 cp .env.example .env   # fill in DATABASE_URL at minimum

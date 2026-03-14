@@ -93,7 +93,7 @@ graph LR
 ### Install
 
 ```bash
-git clone https://github.com/giulioparrinello/teaserYST.git
+git clone https://github.com/giulioparrinello/YouSaidThat.git
 cd teaserYST
 npm install
 ```

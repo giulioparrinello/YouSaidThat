@@ -945,7 +945,7 @@ export default function Home() {
                 </span>
               </Link>
               <a
-                href="https://github.com/giulioparrinello/teaserYST"
+                href="https://github.com/giulioparrinello/YouSaidThat"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-[#111111] transition-colors font-medium"

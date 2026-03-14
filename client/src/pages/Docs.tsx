@@ -265,7 +265,7 @@ export default function Docs() {
             to verify any proof without depending on our servers. The source
             code is available on{" "}
             <a
-              href="https://github.com/giulioparrinello/teaserYST"
+              href="https://github.com/giulioparrinello/YouSaidThat"
               target="_blank"
               rel="noopener noreferrer"
               className="text-[#6366F1] hover:underline inline-flex items-center gap-0.5"
@@ -812,12 +812,12 @@ curl https://arweave.net/<arweave_tx_id>
               <>
                 Repository:{" "}
                 <a
-                  href="https://github.com/giulioparrinello/teaserYST"
+                  href="https://github.com/giulioparrinello/YouSaidThat"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[#6366F1] hover:underline inline-flex items-center gap-0.5"
                 >
-                  github.com/giulioparrinello/teaserYST{" "}
+                  github.com/giulioparrinello/YouSaidThat{" "}
                   <ExternalLink className="w-3 h-3" />
                 </a>
               </>,
@@ -861,7 +861,7 @@ curl https://arweave.net/<arweave_tx_id>
               </span>
             </Link>
             <a
-              href="https://github.com/giulioparrinello/teaserYST"
+              href="https://github.com/giulioparrinello/YouSaidThat"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-[#111] transition-colors"
