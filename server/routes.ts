@@ -1,7 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { webcrypto, randomUUID, timingSafeEqual } from "crypto";
-import DOMPurify from "isomorphic-dompurify";
+// Strip all HTML tags (replaces isomorphic-dompurify which pulls in jsdom/ESM deps incompatible with CJS)
+function stripTags(str: string): string {
+  return str.replace(/<[^>]*>/g, "").replace(/&[a-z]+;|&#\d+;/gi, " ").trim();
+}
 import { storage } from "./storage";
 import { requestTsaToken } from "./services/tsa";
 import { submitToOts } from "./services/ots";
@@ -143,7 +146,7 @@ export async function registerRoutes(
 
       // Sanitize author_name if provided
       const sanitizedAuthorName = author_name
-        ? DOMPurify.sanitize(author_name.slice(0, 100), { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })
+        ? stripTags(author_name.slice(0, 100))
         : null;
 
       // Determine arweave_status: only attempt upload if there's content to store
@@ -482,10 +485,7 @@ export async function registerRoutes(
       }
 
       // Sanitize display_name — strip all HTML tags and attributes
-      const sanitizedName = DOMPurify.sanitize(display_name.slice(0, 100), {
-        ALLOWED_TAGS: [],
-        ALLOWED_ATTR: [],
-      });
+      const sanitizedName = stripTags(display_name.slice(0, 100));
 
       // Pre-generate the ID so the URL can be included on first insert
       const attestationId = randomUUID();
