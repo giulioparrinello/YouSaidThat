@@ -9,7 +9,12 @@ async function req<T>(
     ...options,
   });
 
-  const data = await res.json();
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`Server error (HTTP ${res.status})`);
+  }
   if (!res.ok) throw new Error(data?.message ?? `HTTP ${res.status}`);
   return data as T;
 }
@@ -27,7 +32,12 @@ async function adminReq<T>(
     ...options,
   });
 
-  const data = await res.json();
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`Server error (HTTP ${res.status})`);
+  }
   if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
   return data as T;
 }
