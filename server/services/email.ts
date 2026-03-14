@@ -170,6 +170,78 @@ export async function sendEmailConfirmationRequest(
   }
 }
 
+export async function sendPredictionConfirmationEmail(params: {
+  email: string;
+  hash: string;
+  mode: string;
+  predictionId: string;
+}): Promise<boolean> {
+  const { email, hash, mode, predictionId } = params;
+  const from = getEmailFrom();
+  const verifyUrl = `https://yousaidthat.org/verify?hash=${hash}`;
+  const modeLabel = mode === "sealed_prediction" ? "Sealed Prediction" : "Proof of Existence";
+
+  try {
+    const { error } = await getResend().emails.send({
+      from,
+      to: email,
+      subject: "Your prediction has been anchored — YouSaidThat",
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#111">
+          <p style="font-size:11px;font-family:monospace;letter-spacing:.15em;text-transform:uppercase;color:#6366f1;margin:0 0 24px">
+            YouSaidThat.org
+          </p>
+          <h1 style="font-size:22px;font-weight:700;margin:0 0 16px;letter-spacing:-.02em">
+            Your ${modeLabel} is anchored
+          </h1>
+          <p style="color:#444;line-height:1.6;margin:0 0 24px">
+            Your prediction has been registered and is being anchored on the Bitcoin blockchain via OpenTimestamps.
+            The SHA-256 hash below is your cryptographic proof of existence.
+          </p>
+          <div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:10px;padding:20px 24px;margin:0 0 24px">
+            <p style="margin:0 0 6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#999">SHA-256 Hash</p>
+            <p style="font-family:monospace;font-size:13px;color:#111;word-break:break-all;margin:0">${hash}</p>
+          </div>
+          <div style="margin:0 0 24px">
+            <p style="margin:0 0 8px;font-size:13px;color:#555">What's happening in the background:</p>
+            <ul style="margin:0;padding-left:20px;font-size:13px;color:#444;line-height:2">
+              <li>&#9953; Bitcoin anchoring via OpenTimestamps — <em>in progress</em></li>
+              <li>&#128271; RFC 3161 timestamp token — <em>issued</em></li>
+              <li>&#128452; Permanent Arweave storage — <em>uploading</em></li>
+            </ul>
+          </div>
+          <div style="margin:0 0 28px">
+            <a href="${verifyUrl}"
+               style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:.02em">
+              View your proof
+            </a>
+          </div>
+          <p style="color:#999;font-size:12px;line-height:1.6;margin:0">
+            The Arweave permanent link will appear on your verification page once the upload is confirmed (usually within a few minutes).<br/>
+            Keep this email as a record — the hash is your key to verification.
+          </p>
+          <hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0"/>
+          <p style="color:#bbb;font-size:11px;font-family:monospace">
+            YouSaidThat.org &middot; Privacy-first prediction notarization<br/>
+            Prediction ID: ${predictionId}
+          </p>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error(`[email] Prediction confirmation send error:`, error.message);
+      return false;
+    }
+
+    console.log(`[email] Prediction confirmation sent to ${email} for hash ${hash.slice(0, 8)}`);
+    return true;
+  } catch (err) {
+    console.error(`[email] Prediction confirmation service error:`, err);
+    return false;
+  }
+}
+
 export async function sendReminderEmail(params: {
   email: string;
   targetYear: number;

@@ -21,7 +21,7 @@ import {
   claimLimiter,
   getLimiter,
 } from "./middleware/rateLimiter";
-import { sendWaitlistConfirmationEmail, sendEmailConfirmationRequest } from "./services/email";
+import { sendWaitlistConfirmationEmail, sendEmailConfirmationRequest, sendPredictionConfirmationEmail } from "./services/email";
 import type { ZodError } from "zod";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -172,7 +172,17 @@ export async function registerRoutes(
         emailData
       );
 
-      // Confirmation email — fire-and-forget, only if email was provided
+      // Prediction confirmation email — fire-and-forget, sent whenever email is provided
+      if (email) {
+        sendPredictionConfirmationEmail({
+          email: email.trim().toLowerCase(),
+          hash: prediction.hash,
+          mode: prediction.mode,
+          predictionId: prediction.id,
+        }).catch((err) => console.error("[routes] Prediction confirmation email error:", err));
+      }
+
+      // Reminder confirmation email — only if email + target date both provided
       if (emailData) {
         sendEmailConfirmationRequest(emailData.email, confirmToken, emailData.notify_at)
           .catch((err) => console.error("[routes] Confirmation email error:", err));
