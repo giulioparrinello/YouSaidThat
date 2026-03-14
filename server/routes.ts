@@ -172,9 +172,9 @@ export async function registerRoutes(
         emailData
       );
 
-      // Prediction confirmation email — fire-and-forget, sent whenever email is provided
+      // Prediction confirmation email
       if (email) {
-        sendPredictionConfirmationEmail({
+        await sendPredictionConfirmationEmail({
           email: email.trim().toLowerCase(),
           hash: prediction.hash,
           mode: prediction.mode,
@@ -184,7 +184,7 @@ export async function registerRoutes(
 
       // Reminder confirmation email — only if email + target date both provided
       if (emailData) {
-        sendEmailConfirmationRequest(emailData.email, confirmToken, emailData.notify_at)
+        await sendEmailConfirmationRequest(emailData.email, confirmToken, emailData.notify_at)
           .catch((err) => console.error("[routes] Confirmation email error:", err));
       }
 
@@ -742,8 +742,7 @@ export async function registerRoutes(
 
       await storage.insertWaitlistEntry(normalizedEmail);
 
-      // Fire-and-forget — don't block the response on email delivery
-      sendWaitlistConfirmationEmail(normalizedEmail).catch((err) =>
+      await sendWaitlistConfirmationEmail(normalizedEmail).catch((err) =>
         console.error("[waitlist] Email error:", err)
       );
 
