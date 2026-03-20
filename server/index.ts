@@ -32,7 +32,7 @@ app.use(
         connectSrc: ["'self'", "https://api.drand.sh"],
         fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
         objectSrc: ["'none'"],
-        frameAncestors: ["'self'", "https://giulioparrinello.it"],
+        frameAncestors: ["'self'", "https://giulioparrinello.it", "https://www.giulioparrinello.it"],
       },
     },
     crossOriginEmbedderPolicy: false,
