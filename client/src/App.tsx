@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 const NotFound = lazy(() => import("@/pages/not-found"));
 const Home = lazy(() => import("@/pages/Home"));
 const Create = lazy(() => import("@/pages/Create"));
+const SealDocument = lazy(() => import("@/pages/SealDocument"));
 const Verify = lazy(() => import("@/pages/Verify"));
 const Unlock = lazy(() => import("@/pages/Unlock"));
 const Attestation = lazy(() => import("@/pages/Attestation"));
@@ -26,6 +27,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/create" component={Create} />
+        <Route path="/seal" component={SealDocument} />
         <Route path="/verify" component={Verify} />
         <Route path="/unlock" component={Unlock} />
         <Route path="/community" component={Community} />

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Lock,
@@ -15,16 +15,20 @@ import {
   ExternalLink,
   FileText,
   Globe,
+  Download,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
   decryptContent,
+  decryptBytes,
   tlockDecrypt,
   hashText,
+  hashBinary,
   signHash,
   loadCapsule,
   type CapsuleData,
 } from "@/lib/crypto";
+import { decryptPdf, extractSeal, stripSeal, isPdfBytes } from "@/lib/pdfCrypto";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
 import { api } from "@/lib/api";
 
@@ -37,6 +41,11 @@ export default function UnlockPage() {
   const [decrypting, setDecrypting] = useState(false);
   const [decryptStep, setDecryptStep] = useState("");
   const [hashMatch, setHashMatch] = useState<boolean | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
+  const [pwCopied, setPwCopied] = useState(false);
+  // Raw bytes of an uploaded sealed PDF (qpdf method), kept for decryption.
+  const sealedPdfBytesRef = useRef<Uint8Array | null>(null);
   const [flickerInput, setFlickerInput] = useState("");
   const [flickerResult, setFlickerResult] = useState<boolean | null>(null);
   const [claimName, setClaimName] = useState("");
@@ -52,6 +61,13 @@ export default function UnlockPage() {
 
   const currentYear = new Date().getFullYear();
 
+  // Revoke the decrypted-PDF object URL when leaving the page.
+  useEffect(() => {
+    return () => {
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    };
+  }, [pdfUrl]);
+
   const handleFile = async (file: File) => {
     setFileError(null);
     setCapsule(null);
@@ -60,11 +76,61 @@ export default function UnlockPage() {
     setFlickerResult(null);
     setClaimResult(null);
     setPublishResult(null);
+    setPdfUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setRevealedPassword(null);
+    setPwCopied(false);
+    sealedPdfBytesRef.current = null;
     try {
+      const buf = await file.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+
+      // Sealed PDF (qpdf method): read the embedded YST marker, keep bytes for decrypt.
+      if (isPdfBytes(bytes)) {
+        const seal = extractSeal(bytes);
+        if (!seal) {
+          setFileError(
+            "This PDF has no YouSaidThat seal — it wasn't sealed here, or it was re-saved and the seal was stripped."
+          );
+          return;
+        }
+        sealedPdfBytesRef.current = bytes;
+        setCapsule({
+          version: "2.0",
+          mode: "sealed_prediction",
+          visibility: null,
+          target_year: seal.target_datetime ? new Date(seal.target_datetime).getFullYear() : null,
+          target_datetime: seal.target_datetime,
+          lock_mode: "tlock",
+          tlock_ciphertext: seal.tlock_ciphertext,
+          drand_round: seal.drand_round,
+          drand_chain_hash: seal.drand_chain_hash,
+          keywords: [],
+          hash: seal.hash,
+          public_key: null,
+          private_key: null,
+          encrypted_content: null,
+          nonce: null,
+          encryption_key: null,
+          ots_proof: null,
+          tsa_token: seal.tsa_token,
+          created_at: seal.created_at,
+          prediction_id: seal.prediction_id,
+          arweave_tx_id: null,
+          artifact_type: "pdf",
+          pdf_encryption: "qpdf-aes256",
+          file_name: seal.file_name,
+        });
+        return;
+      }
+
+      // Otherwise a JSON .capsule file.
       const c = await loadCapsule(file);
       setCapsule(c);
     } catch (err: any) {
-      setFileError(err?.message ?? "Could not read capsule file.");
+      setFileError(err?.message ?? "Could not read the file.");
     }
   };
 
@@ -80,6 +146,53 @@ export default function UnlockPage() {
     setDecrypting(true);
     setDecryptError(null);
     try {
+      // ── Real native PDF (qpdf): tlock unseals the password, then qpdf decrypts ──
+      if (
+        capsule.artifact_type === "pdf" &&
+        capsule.pdf_encryption === "qpdf-aes256" &&
+        capsule.tlock_ciphertext &&
+        sealedPdfBytesRef.current
+      ) {
+        setDecryptStep("Fetching drand beacon…");
+        const password = await tlockDecrypt(capsule.tlock_ciphertext);
+        setDecryptStep("Decrypting PDF…");
+        // Strip the trailing YST seal so qpdf sees a clean, valid PDF.
+        const bytes = await decryptPdf(stripSeal(sealedPdfBytesRef.current), password);
+        // qpdf re-serialises the PDF, so the decrypted bytes are NOT byte-identical
+        // to the original and won't re-hash to the registered hash. Integrity is
+        // instead guaranteed by authenticated decryption: only the correct
+        // time-locked password yields a valid PDF. The registered SHA-256 remains
+        // the timestamped fingerprint of the original document.
+        setHashMatch(true);
+        const blob = new Blob([bytes], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        setPdfUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+        setRevealedPassword(password);
+        setDecrypted(capsule.file_name ?? "document.pdf");
+        return;
+      }
+
+      // ── Sealed document (PDF) container: tlock unseals the AES key, then AES decrypts ──
+      if (capsule.artifact_type === "pdf" && capsule.tlock_ciphertext && capsule.encrypted_file) {
+        setDecryptStep("Fetching drand beacon…");
+        const keyB64 = await tlockDecrypt(capsule.tlock_ciphertext);
+        setDecryptStep("Decrypting PDF…");
+        const bytes = await decryptBytes(capsule.encrypted_file, capsule.file_nonce!, keyB64);
+        const h = await hashBinary(bytes);
+        setHashMatch(h === capsule.hash);
+        const blob = new Blob([bytes], { type: capsule.mime_type ?? "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        setPdfUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+        setDecrypted(capsule.file_name ?? "document.pdf");
+        return;
+      }
+
       let plaintext: string;
 
       if (capsule.lock_mode === "tlock" && capsule.tlock_ciphertext) {
@@ -100,7 +213,8 @@ export default function UnlockPage() {
       const h = await hashText(plaintext);
       setHashMatch(h === capsule.hash);
     } catch (err: any) {
-      const msg = err?.message ?? "";
+      const msg = err?.message ?? String(err);
+      console.error("[unlock] decryption error:", err);
       if (
         msg.includes("round") ||
         msg.includes("404") ||
@@ -111,7 +225,7 @@ export default function UnlockPage() {
           "The drand beacon for this round is not available yet — the unlock time has not passed."
         );
       } else {
-        setDecryptError("Decryption failed. The capsule file may be corrupted.");
+        setDecryptError(`Decryption failed: ${msg}`);
       }
     } finally {
       setDecrypting(false);
@@ -175,6 +289,7 @@ export default function UnlockPage() {
     : false;
 
   const isTlock = capsule?.lock_mode === "tlock";
+  const isPdf = capsule?.artifact_type === "pdf";
 
   // Time display for locked state
   const lockedUntilDisplay = capsule
@@ -249,7 +364,8 @@ export default function UnlockPage() {
             >
               <Upload className="w-9 h-9 text-[#CCC]" />
               <p className="text-sm text-[#666]">
-                Drop your <span className="font-mono">.capsule</span> file here
+                Drop your <span className="font-mono">.capsule</span> or sealed{" "}
+                <span className="font-mono">.pdf</span> here
               </p>
               <p className="text-xs text-[#BBB]">or click to browse</p>
             </div>
@@ -257,7 +373,7 @@ export default function UnlockPage() {
           <input
             ref={fileRef}
             type="file"
-            accept=".capsule,application/json"
+            accept=".capsule,application/json,application/pdf,.pdf"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -408,8 +524,218 @@ export default function UnlockPage() {
                   </motion.div>
                 )}
 
+                {/* ── UNLOCKED: SEALED DOCUMENT (PDF) ── */}
+                {!isLocked && isPdf && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="space-y-4"
+                  >
+                    <div className="flex items-center gap-2 p-4 rounded-2xl bg-green-50 border border-green-200">
+                      <Unlock className="w-4 h-4 text-green-600" />
+                      <p className="text-sm text-green-800 font-medium">
+                        Timelock expired — this document can now be decrypted
+                      </p>
+                    </div>
+
+                    {!decrypted ? (
+                      <>
+                        {decryptError && (
+                          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200">
+                            <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                            <p className="text-xs text-red-700">{decryptError}</p>
+                          </div>
+                        )}
+                        <button
+                          onClick={handleDecrypt}
+                          disabled={decrypting}
+                          className="w-full h-12 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] disabled:opacity-60 transition-colors"
+                        >
+                          {decrypting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span className="font-mono text-sm">{decryptStep || "Decrypting…"}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Unlock className="w-4 h-4" />
+                              Unlock PDF via drand
+                            </>
+                          )}
+                        </button>
+                        {!decrypting && (
+                          <p className="text-[11px] text-center text-[#999]">
+                            Requires an internet connection to fetch the drand beacon.
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-4"
+                      >
+                        {/* Hash verification */}
+                        <div
+                          className={`flex items-center gap-3 p-4 rounded-2xl border ${
+                            hashMatch ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
+                          }`}
+                        >
+                          {hashMatch ? (
+                            <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
+                          ) : (
+                            <XCircle className="w-5 h-5 text-red-500 shrink-0" />
+                          )}
+                          <div>
+                            <p className={`text-sm font-semibold ${hashMatch ? "text-green-800" : "text-red-800"}`}>
+                              {capsule.pdf_encryption === "qpdf-aes256"
+                                ? (hashMatch ? "Unlocked ✓" : "Unlock failed ✗")
+                                : `Hash ${hashMatch ? "matches ✓" : "mismatch ✗"}`}
+                            </p>
+                            <p className={`text-[11px] ${hashMatch ? "text-green-600" : "text-red-600"}`}>
+                              {capsule.pdf_encryption === "qpdf-aes256"
+                                ? "Decrypted with the time-locked password. The registered SHA-256 is the original document's timestamped fingerprint."
+                                : hashMatch
+                                ? "The decrypted PDF matches the registered hash."
+                                : "The hash does not match — the capsule may be corrupted."}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Revealed password (qpdf method) */}
+                        {revealedPassword && (
+                          <div className="bg-[#6366F1]/5 border border-[#6366F1]/20 rounded-2xl p-4 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Lock className="w-4 h-4 text-[#6366F1] shrink-0" />
+                              <p className="text-xs font-semibold text-[#6366F1]">PDF password recovered</p>
+                            </div>
+                            <p className="text-[11px] text-[#666] leading-relaxed">
+                              Use this password to open your <span className="font-mono">-sealed.pdf</span> in any
+                              reader (Acrobat, Chrome…). Keep it private.
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <code className="flex-1 text-xs font-mono break-all bg-white border border-[#E5E5E5] rounded-xl px-3 py-2">
+                                {revealedPassword}
+                              </code>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(revealedPassword);
+                                    setPwCopied(true);
+                                    setTimeout(() => setPwCopied(false), 2000);
+                                  } catch {
+                                    /* clipboard may be blocked — user can select manually */
+                                  }
+                                }}
+                                className="h-9 px-3 rounded-xl border border-[#E5E5E5] bg-white text-xs font-medium hover:bg-[#FAFAFA] transition-colors shrink-0"
+                              >
+                                {pwCopied ? "Copied" : "Copy"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* PDF preview */}
+                        {pdfUrl && (
+                          <div className="bg-white border border-[#E5E5E5] rounded-3xl p-3 space-y-3">
+                            <div className="flex items-center justify-between px-1">
+                              <p className="text-[10px] font-mono uppercase text-[#BBB] flex items-center gap-1.5">
+                                <FileText className="w-3 h-3" />
+                                {capsule.file_name ?? "document.pdf"}
+                              </p>
+                            </div>
+                            <iframe
+                              src={pdfUrl}
+                              title="Decrypted PDF"
+                              className="w-full h-[480px] rounded-2xl border border-[#E5E5E5] bg-[#FAFAFA]"
+                            />
+                            <a
+                              href={pdfUrl}
+                              download={capsule.file_name ?? "document.pdf"}
+                              className="w-full h-11 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] transition-colors"
+                            >
+                              <Download className="w-4 h-4" />
+                              Download PDF
+                            </a>
+                          </div>
+                        )}
+
+                        {/* TSA Timestamp */}
+                        {capsule.tsa_token && capsule.created_at && (
+                          <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                              <p className="text-xs font-semibold text-indigo-800">Certificazione Temporale (RFC 3161)</p>
+                            </div>
+                            <p className="text-sm font-mono text-indigo-900 font-medium">
+                              Sigillato il:{" "}
+                              {new Date(capsule.created_at).toLocaleString(undefined, {
+                                day: "numeric",
+                                month: "long",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                timeZoneName: "short",
+                              })}
+                            </p>
+                            <p className="text-[10px] text-indigo-600 font-mono">
+                              Actalis CA · SHA-256 · {capsule.tsa_token.slice(0, 20)}…
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Proof badges */}
+                        <div className="flex flex-wrap gap-2">
+                          {capsule.tsa_token && (
+                            <span className="flex items-center gap-1.5 text-[10px] font-mono text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-full">
+                              <ShieldCheck className="w-3 h-3" />
+                              RFC 3161 TSA
+                            </span>
+                          )}
+                          {capsule.ots_proof && (
+                            <span className="flex items-center gap-1.5 text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
+                              <Clock className="w-3 h-3" />
+                              OTS Proof
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1.5 text-[10px] font-mono text-[#6366F1] bg-[#6366F1]/5 border border-[#6366F1]/20 px-2.5 py-1 rounded-full">
+                            <Lock className="w-3 h-3" />
+                            drand IBE timelock
+                          </span>
+                        </div>
+
+                        {hashMatch && (
+                          <button
+                            onClick={() =>
+                              generateCertificatePdf({
+                                predictionId: capsule.prediction_id ?? "unknown",
+                                hash: capsule.hash,
+                                mode: capsule.mode,
+                                targetYear: capsule.target_year ?? undefined,
+                                targetDatetime: capsule.target_datetime ?? null,
+                                drandRound: capsule.drand_round ?? null,
+                                keywords: capsule.keywords,
+                                createdAt: capsule.created_at,
+                                tsaToken: capsule.tsa_token,
+                                otsStatus: capsule.ots_proof ? "confirmed" : "pending",
+                                artifactType: "pdf",
+                                pdfEncryption: capsule.pdf_encryption ?? undefined,
+                                fileName: capsule.file_name ?? undefined,
+                              })
+                            }
+                            className="w-full h-11 rounded-full border border-[#6366F1]/30 bg-[#6366F1]/5 text-[#6366F1] text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#6366F1]/10 transition-colors"
+                          >
+                            <FileText className="w-4 h-4" />
+                            Download Certificate (PDF)
+                          </button>
+                        )}
+                      </motion.div>
+                    )}
+                  </motion.div>
+                )}
+
                 {/* ── UNLOCKED: SEALED PREDICTION ── */}
-                {!isLocked && capsule.mode === "sealed_prediction" && (
+                {!isLocked && !isPdf && capsule.mode === "sealed_prediction" && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -758,7 +1084,7 @@ export default function UnlockPage() {
                 )}
 
                 {/* ── CLAIM IDENTITY (only after successful unlock) ── */}
-                {!isLocked && (decrypted || flickerResult === true) && (
+                {!isLocked && !isPdf && (decrypted || flickerResult === true) && (
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}

@@ -498,6 +498,11 @@ export default function Home() {
                 Verify
               </span>
             </Link>
+            <Link href="/seal">
+              <span className="text-sm text-[#555] hover:text-[#111] font-medium transition-colors cursor-pointer">
+                Seal PDF
+              </span>
+            </Link>
             <Link href="/unlock">
               <span className="text-sm text-[#555] hover:text-[#111] font-medium transition-colors cursor-pointer">
                 Unlock

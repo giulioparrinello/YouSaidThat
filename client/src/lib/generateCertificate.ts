@@ -20,6 +20,12 @@ export interface CertificateData {
   bitcoinBlock?: number | null;
   /** Revealed content — only included post-unlock */
   revealedContent?: string;
+  /** Sealed document (PDF) marker — changes the certificate label. */
+  artifactType?: "pdf";
+  /** How the sealed PDF is protected (qpdf native vs YST container). */
+  pdfEncryption?: "container" | "qpdf-aes256";
+  /** Original file name for sealed documents. */
+  fileName?: string;
   // Proof of existence content fields
   content?: string;
   contentEncrypted?: string;
@@ -161,7 +167,12 @@ export function generateCertificatePdf(data: CertificateData): void {
 
   const isSealedPrediction = data.mode === "sealed_prediction";
   const isTlock = !!data.targetDatetime || !!data.drandRound;
-  const modeLabel = isSealedPrediction
+  const isSealedDoc = data.artifactType === "pdf";
+  const modeLabel = isSealedDoc
+    ? (data.pdfEncryption === "qpdf-aes256"
+        ? "Sealed Document (PDF) — qpdf AES-256 + drand Timelock"
+        : "Sealed Document (PDF) — AES-256 + drand Timelock")
+    : isSealedPrediction
     ? (isTlock ? "Sealed Prediction — drand IBE Timelock (v2)" : "Sealed Prediction — AES-256-GCM (v1)")
     : "Proof of Existence";
 
@@ -169,7 +180,9 @@ export function generateCertificatePdf(data: CertificateData): void {
   doc.setFont("helvetica", "normal");
   tc(doc, MID);
   const subtitleLine =
-    isSealedPrediction
+    isSealedDoc
+      ? `This certificate proves that a sealed document${data.fileName ? ` (${data.fileName})` : ""} existed and was committed to the Bitcoin blockchain at the recorded time. The file is encrypted and time-locked until the unlock date.`
+      : isSealedPrediction
       ? "This certificate proves that an encrypted prediction was committed to the Bitcoin blockchain at the recorded time."
       : "This certificate proves that the following content existed and was committed to the Bitcoin blockchain at the recorded time.";
   doc.text(subtitleLine, MARGIN, y);

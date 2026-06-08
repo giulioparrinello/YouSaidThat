@@ -5,6 +5,8 @@ import {
   generateKeyPair,
   encryptContent,
   decryptContent,
+  encryptBytes,
+  decryptBytes,
   signHash,
   drandRoundAt,
 } from "../client/src/lib/crypto";
@@ -155,6 +157,153 @@ describe("encryptContent / decryptContent", () => {
     await expect(
       decryptContent(encryptedContent, nonce, wrongKey)
     ).rejects.toThrow();
+  });
+});
+
+// ─── AES-256-GCM Binary Encryption (sealed documents / PDFs) ────────────────────
+
+describe("encryptBytes / decryptBytes", () => {
+  // Minimal valid-looking PDF header bytes + some binary payload.
+  function makeBytes(): ArrayBuffer {
+    const arr = new Uint8Array(2048);
+    const header = new TextEncoder().encode("%PDF-1.7\n");
+    arr.set(header, 0);
+    for (let i = header.length; i < arr.length; i++) arr[i] = (i * 31 + 7) % 256;
+    return arr.buffer;
+  }
+
+  it("encrypts and decrypts back to the identical bytes", async () => {
+    const original = makeBytes();
+    const { ciphertext, nonce, keyB64 } = await encryptBytes(original);
+
+    expect(ciphertext.length).toBeGreaterThan(0);
+    expect(nonce.length).toBeGreaterThan(0);
+    expect(keyB64.length).toBeGreaterThan(0);
+
+    const decrypted = await decryptBytes(ciphertext, nonce, keyB64);
+    expect(new Uint8Array(decrypted)).toEqual(new Uint8Array(original));
+  });
+
+  it("preserves the hash across the encrypt/decrypt round-trip", async () => {
+    const original = makeBytes();
+    const originalHash = await hashBinary(original);
+    const { ciphertext, nonce, keyB64 } = await encryptBytes(original);
+    const decrypted = await decryptBytes(ciphertext, nonce, keyB64);
+    expect(await hashBinary(decrypted)).toBe(originalHash);
+  });
+
+  it("produces different ciphertext for the same bytes (random key + nonce)", async () => {
+    const original = makeBytes();
+    const a = await encryptBytes(original);
+    const b = await encryptBytes(original);
+    expect(a.ciphertext).not.toBe(b.ciphertext);
+    expect(a.nonce).not.toBe(b.nonce);
+    expect(a.keyB64).not.toBe(b.keyB64);
+  });
+
+  it("fails to decrypt with the wrong key", async () => {
+    const { ciphertext, nonce } = await encryptBytes(makeBytes());
+    const { keyB64: wrongKey } = await encryptBytes(makeBytes());
+    await expect(decryptBytes(ciphertext, nonce, wrongKey)).rejects.toThrow();
+  });
+});
+
+// ─── Sealed-PDF marker (Phase 2: appendSeal / extractSeal) ──────────────────────
+
+import { appendSeal, extractSeal, stripSeal, randomPassword, isPdfBytes } from "../client/src/lib/pdfCrypto";
+
+describe("appendSeal / extractSeal", () => {
+  const seal = {
+    v: 1 as const,
+    alg: "qpdf-aes256" as const,
+    tlock_ciphertext: "age-encryption.org/v1\n-> tlock 12345 abc\nBASE64DATA==\n",
+    drand_round: 12345,
+    drand_chain_hash: "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
+    hash: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+    prediction_id: "11111111-2222-3333-4444-555555555555",
+    target_datetime: "2027-01-01T00:00:00.000Z",
+    file_name: "contratto.pdf",
+    tsa_token: "AAECAwQFBg==",
+    created_at: "2026-06-05T12:00:00.000Z",
+  };
+
+  // Fake encrypted-PDF bytes (binary, with a %PDF header + an %%EOF).
+  function fakePdf(): Uint8Array {
+    const head = new TextEncoder().encode("%PDF-1.7\n");
+    const body = new Uint8Array(1024);
+    for (let i = 0; i < body.length; i++) body[i] = (i * 7 + 3) % 256;
+    const eof = new TextEncoder().encode("\n%%EOF\n");
+    const out = new Uint8Array(head.length + body.length + eof.length);
+    out.set(head, 0);
+    out.set(body, head.length);
+    out.set(eof, head.length + body.length);
+    return out;
+  }
+
+  it("round-trips the seal through append + extract", () => {
+    const sealed = appendSeal(fakePdf(), seal);
+    const got = extractSeal(sealed);
+    expect(got).toEqual(seal);
+  });
+
+  it("keeps the PDF header intact (still looks like a PDF)", () => {
+    const sealed = appendSeal(fakePdf(), seal);
+    expect(isPdfBytes(sealed)).toBe(true);
+  });
+
+  it("returns null when there is no marker", () => {
+    expect(extractSeal(fakePdf())).toBeNull();
+  });
+
+  it("extracts the last marker if appended twice", () => {
+    const once = appendSeal(fakePdf(), seal);
+    const twice = appendSeal(once, { ...seal, drand_round: 99999 });
+    expect(extractSeal(twice)?.drand_round).toBe(99999);
+  });
+
+  it("handles unicode file names", () => {
+    const s = { ...seal, file_name: "preventìvo €uro 🇮🇹.pdf" };
+    const sealed = appendSeal(fakePdf(), s);
+    expect(extractSeal(sealed)?.file_name).toBe("preventìvo €uro 🇮🇹.pdf");
+  });
+
+  it("re-declares a startxref trailer after the marker", () => {
+    // fakePdf has no startxref → no trailer; build one that does.
+    const withXref = new TextEncoder().encode("%PDF-1.7\n...\nstartxref\n9\n%%EOF\n");
+    const sealed = appendSeal(withXref, seal);
+    const text = new TextDecoder("latin1").decode(sealed);
+    // The marker must be followed by a fresh startxref/%%EOF.
+    expect(text.slice(text.lastIndexOf("%%YST-SEAL1:"))).toMatch(/startxref\s+9\s+%%EOF/);
+  });
+
+  it("stripSeal recovers the exact original bytes", () => {
+    const original = fakePdf();
+    const sealed = appendSeal(original, seal);
+    const stripped = stripSeal(sealed);
+    expect(new Uint8Array(stripped)).toEqual(new Uint8Array(original));
+  });
+
+  it("stripSeal is a no-op when there is no marker", () => {
+    const original = fakePdf();
+    expect(new Uint8Array(stripSeal(original))).toEqual(new Uint8Array(original));
+  });
+
+  it("extractSeal still works after the startxref trailer is appended", () => {
+    const withXref = new TextEncoder().encode("%PDF-1.7\nx\nstartxref\n9\n%%EOF\n");
+    const sealed = appendSeal(withXref, seal);
+    expect(extractSeal(sealed)).toEqual(seal);
+  });
+});
+
+describe("randomPassword", () => {
+  it("is URL-safe and high-entropy", () => {
+    const pw = randomPassword();
+    expect(pw).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(pw.length).toBeGreaterThanOrEqual(40);
+  });
+
+  it("is different each time", () => {
+    expect(randomPassword()).not.toBe(randomPassword());
   });
 });
 

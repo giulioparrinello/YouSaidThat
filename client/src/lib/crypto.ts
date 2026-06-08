@@ -41,6 +41,26 @@ export interface CapsuleData {
   prediction_id: string | null;
   /** Arweave TX ID — available after permanent storage upload completes. */
   arweave_tx_id: string | null;
+
+  // ─── Sealed document (PDF) fields — timelock container ─────────────────────
+  /** Discriminates a sealed binary document from a text prediction. */
+  artifact_type?: "pdf";
+  /**
+   * How the PDF is protected:
+   * - "container": AES-256-GCM blob inside this capsule (Phase 1, opens only on YST)
+   * - "qpdf-aes256": real native AES-256 PDF; bytes live in the downloaded .pdf, not here (Phase 2)
+   */
+  pdf_encryption?: "container" | "qpdf-aes256";
+  /** AES-256-GCM ciphertext of the original PDF bytes, base64. */
+  encrypted_file?: string | null;
+  /** AES-256-GCM nonce for encrypted_file, 12 bytes, base64. */
+  file_nonce?: string | null;
+  /** Original file name, for display + re-download. */
+  file_name?: string | null;
+  /** Original file size in bytes. */
+  file_size?: number | null;
+  /** Original MIME type (e.g. "application/pdf"). */
+  mime_type?: string | null;
 }
 
 // ─── SHA-256 ──────────────────────────────────────────────────────────────────
@@ -146,6 +166,58 @@ export async function decryptContent(
   );
 
   return new TextDecoder().decode(plaintextBuf);
+}
+
+// ─── AES-256-GCM binary encryption (sealed documents / PDFs) ─────────────────
+// Same scheme as encryptContent but over raw bytes instead of UTF-8 text.
+// Used to wrap a PDF; the returned key is then sealed with tlock (never the file).
+
+export async function encryptBytes(buffer: ArrayBuffer): Promise<{
+  ciphertext: string; // base64 ciphertext
+  nonce: string;      // base64 12-byte nonce
+  keyB64: string;     // base64 32-byte raw AES key (gets tlock-sealed, never sent to server)
+}> {
+  const key = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
+
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(12));
+
+  const cipherBuf = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: nonceBytes },
+    key,
+    buffer
+  );
+
+  const keyRaw = await crypto.subtle.exportKey("raw", key);
+
+  return {
+    ciphertext: bufToB64(cipherBuf),
+    nonce: bufToB64(nonceBytes),
+    keyB64: bufToB64(keyRaw),
+  };
+}
+
+export async function decryptBytes(
+  ciphertextB64: string,
+  nonceB64: string,
+  keyB64: string
+): Promise<ArrayBuffer> {
+  const keyRaw = b64ToBuf(keyB64);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyRaw,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+
+  const nonce = b64ToBuf(nonceB64);
+  const ciphertext = b64ToBuf(ciphertextB64);
+
+  return crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, ciphertext);
 }
 
 // ─── drand timelock encryption (v2) ──────────────────────────────────────────

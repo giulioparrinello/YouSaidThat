@@ -15,6 +15,11 @@ export default defineConfig({
       "@": path.resolve(__dirname, "client", "src"),
       "@shared": path.resolve(__dirname, "shared"),
       "@assets": path.resolve(__dirname, "attached_assets"),
+      // Node built-ins referenced (but never executed) by qpdf-wasm's Emscripten
+      // glue — stub them so the browser bundle builds. See node-empty.ts.
+      fs: path.resolve(__dirname, "client", "src", "lib", "node-empty.ts"),
+      path: path.resolve(__dirname, "client", "src", "lib", "node-empty.ts"),
+      crypto: path.resolve(__dirname, "client", "src", "lib", "node-empty.ts"),
     },
   },
   css: {
