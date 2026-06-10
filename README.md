@@ -94,7 +94,7 @@ graph LR
 
 ```bash
 git clone https://github.com/giulioparrinello/YouSaidThat.git
-cd teaserYST
+cd YouSaidThat
 npm install
 ```
 
