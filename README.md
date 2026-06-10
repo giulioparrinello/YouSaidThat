@@ -1,5 +1,7 @@
 # YouSaidThat
 
+[![CI](https://github.com/giulioparrinello/YouSaidThat/actions/workflows/ci.yml/badge.svg)](https://github.com/giulioparrinello/YouSaidThat/actions/workflows/ci.yml)
+
 **Prove you said it before anyone else.**
 
 YouSaidThat is a privacy-first prediction notarization platform. Seal your predictions today, reveal them later — with cryptographic proof that you knew it first.
