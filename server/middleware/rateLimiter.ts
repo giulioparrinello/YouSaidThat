@@ -1,6 +1,11 @@
 import rateLimit from "express-rate-limit";
 
-// POST /api/predictions/register: 10/min, 100/day
+// Known limitation: the default in-memory store is per-process. On Vercel
+// serverless each lambda instance keeps its own counters, so the effective
+// limit scales with concurrent instances. Accepted: abuse here means spam,
+// not compromise. A shared store (Redis/Postgres) can be added if needed.
+
+// POST /api/predictions/register: 10/min per IP
 export const registerLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
