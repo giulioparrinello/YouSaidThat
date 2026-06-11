@@ -25,14 +25,41 @@ export async function submitToOts(hashHex: string): Promise<string | null> {
     // m=1 means at least 1 calendar must reply
     await OpenTimestamps.stamp(f, { calendars: CALENDARS, m: 1 });
 
-    // Serialize the full OTS file (can later be deserialised + upgraded)
-    const otsBytes: Buffer = f.serializeToBytes();
+    // Serialize the full OTS file (can later be deserialised + upgraded).
+    // serializeToBytes() returns a plain Uint8Array: it must be wrapped in a
+    // Buffer or .toString("base64") silently degrades to comma-joined decimals.
+    const otsBytes = Buffer.from(f.serializeToBytes());
     console.log(`[ots] Stamped hash ${hashHex.slice(0, 8)}…: ${otsBytes.length} bytes`);
     return otsBytes.toString("base64");
   } catch (err) {
     console.error("[ots] submitToOts error:", err);
     return null;
   }
+}
+
+// Proofs stamped before the Buffer fix above were stored as comma-joined
+// decimal bytes ("0,79,112,…") instead of base64. Decode both formats so
+// legacy rows can still be upgraded; they get rewritten in base64 on upgrade.
+export function decodeStoredProof(stored: string): Buffer {
+  if (/^\d{1,3}(,\d{1,3})*$/.test(stored)) {
+    return Buffer.from(stored.split(",").map(Number));
+  }
+  return Buffer.from(stored, "base64");
+}
+
+// Extract the Bitcoin block height from a (upgraded) detached timestamp.
+// allAttestations() returns a Map of msg → attestation: iterate the values.
+export function extractBitcoinBlock(detached: any): number | undefined {
+  try {
+    for (const attest of detached.timestamp.allAttestations().values()) {
+      if (attest instanceof OpenTimestamps.Notary.BitcoinBlockHeaderAttestation) {
+        return attest.height;
+      }
+    }
+  } catch {
+    // block extraction is optional
+  }
+  return undefined;
 }
 
 // ─── Try to upgrade a pending OTS proof ───────────────────────────────────────
@@ -42,7 +69,7 @@ export async function upgradeOtsProof(
   hashHex: string
 ): Promise<{ upgraded: boolean; proof?: string; bitcoinBlock?: number }> {
   try {
-    const proofBytes = Buffer.from(otsProofBase64, "base64");
+    const proofBytes = decodeStoredProof(otsProofBase64);
 
     // deserialize() accepts a Buffer directly
     const detached = OpenTimestamps.DetachedTimestampFile.deserialize(proofBytes);
@@ -54,21 +81,10 @@ export async function upgradeOtsProof(
       return { upgraded: false };
     }
 
-    // Serialize the upgraded proof
-    const upgradedBytes: Buffer = detached.serializeToBytes();
+    // Serialize the upgraded proof (Uint8Array → Buffer, see submitToOts)
+    const upgradedBytes = Buffer.from(detached.serializeToBytes());
 
-    // Extract Bitcoin block height from attestations (best-effort)
-    let bitcoinBlock: number | undefined;
-    try {
-      for (const [attest] of detached.timestamp.allAttestations()) {
-        if (attest instanceof OpenTimestamps.Notary.BitcoinBlockHeaderAttestation) {
-          bitcoinBlock = attest.height;
-          break;
-        }
-      }
-    } catch {
-      // block extraction is optional
-    }
+    const bitcoinBlock = extractBitcoinBlock(detached);
 
     console.log(`[ots] Proof upgraded for hash ${hashHex.slice(0, 8)}… bitcoin block: ${bitcoinBlock ?? "unknown"}`);
     return { upgraded: true, proof: upgradedBytes.toString("base64"), bitcoinBlock };

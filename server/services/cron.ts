@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import { storage } from "../storage";
-import { upgradeOtsProof } from "./ots";
+import { submitToOts, upgradeOtsProof } from "./ots";
 import { sendReminderEmail } from "./email";
 
 export function startCronJobs(): void {
@@ -38,27 +38,33 @@ export async function pollOtsStatus(): Promise<number> {
     console.log(`[cron] Checking ${pending.length} pending OTS proofs`);
 
     for (const prediction of pending) {
-      if (!prediction.ots_proof) continue;
+      // No proof stored (original submission was lost): re-stamp now.
+      // The upgrade will be attempted on the next run.
+      if (!prediction.ots_proof) {
+        const proof = await submitToOts(prediction.hash);
+        if (proof) {
+          await storage.updateOtsStatus(prediction.id, {
+            ots_status: "pending",
+            ots_proof: proof,
+            ots_stamped_at: new Date(),
+          });
+          console.log(`[cron] Prediction ${prediction.id} re-stamped (missing proof)`);
+          processed++;
+        }
+        continue;
+      }
 
+      // Age is measured from the last calendar submission; legacy rows
+      // (stamped before ots_stamped_at existed) fall back to created_at.
+      const stampedAt = prediction.ots_stamped_at ?? prediction.created_at!;
       const ageHours =
-        (Date.now() - new Date(prediction.created_at!).getTime()) /
-        (1000 * 60 * 60);
+        (Date.now() - new Date(stampedAt).getTime()) / (1000 * 60 * 60);
 
       // Bitcoin anchoring takes 1-24h, skip if too fresh
       if (ageHours < 2) continue;
 
-      // Mark as failed after 7 days and trigger re-submission
-      if (ageHours > 7 * 24) {
-        await storage.updateOtsStatus(prediction.id, { ots_status: "failed" });
-        console.log(`[cron] Prediction ${prediction.id} OTS failed (7d timeout)`);
-        processed++;
-        continue;
-      }
-
-      const result = await upgradeOtsProof(
-        prediction.ots_proof,
-        prediction.hash
-      );
+      // Always try the upgrade first: a proof may be confirmable even if old
+      const result = await upgradeOtsProof(prediction.ots_proof, prediction.hash);
 
       if (result.upgraded) {
         await storage.updateOtsStatus(prediction.id, {
@@ -67,6 +73,26 @@ export async function pollOtsStatus(): Promise<number> {
           bitcoin_block: result.bitcoinBlock,
         });
         console.log(`[cron] Prediction ${prediction.id} OTS confirmed (block ${result.bitcoinBlock ?? "?"})`);
+        processed++;
+        continue;
+      }
+
+      // Still unconfirmed after 7 days since stamping: the calendar likely
+      // lost the commitment. Re-stamp once (resets the window) so the proof
+      // chain stays alive instead of going dead-pending.
+      if (ageHours > 7 * 24) {
+        const proof = await submitToOts(prediction.hash);
+        if (proof) {
+          await storage.updateOtsStatus(prediction.id, {
+            ots_status: "pending",
+            ots_proof: proof,
+            ots_stamped_at: new Date(),
+          });
+          console.log(`[cron] Prediction ${prediction.id} re-stamped (7d without confirmation)`);
+        } else {
+          await storage.updateOtsStatus(prediction.id, { ots_status: "failed" });
+          console.log(`[cron] Prediction ${prediction.id} OTS failed (7d timeout, re-stamp failed)`);
+        }
         processed++;
       }
     }

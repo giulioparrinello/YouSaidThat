@@ -12,6 +12,7 @@ export const predictions = pgTable("predictions", {
   keywords: text("keywords").array(),               // up to 3 optional keywords
   ots_status: text("ots_status").notNull().default("pending"), // pending | confirmed | failed
   ots_proof: text("ots_proof"),                     // base64-encoded OTS proof blob
+  ots_stamped_at: timestamp("ots_stamped_at", { withTimezone: true }), // last calendar submission (null = legacy rows)
   tsa_token: text("tsa_token"),                     // base64-encoded RFC 3161 token
   bitcoin_block: integer("bitcoin_block"),
   timestamp_utc: timestamp("timestamp_utc", { withTimezone: true }).defaultNow(),

@@ -34,7 +34,7 @@ export interface IStorage {
   }): Promise<{ predictions: Prediction[]; total: number }>;
   updateOtsStatus(
     id: string,
-    data: { ots_status: string; ots_proof?: string; bitcoin_block?: number }
+    data: { ots_status: string; ots_proof?: string; bitcoin_block?: number; ots_stamped_at?: Date }
   ): Promise<void>;
   getPendingOts(): Promise<Prediction[]>;
   updateArweaveStatus(
@@ -164,7 +164,7 @@ export class DrizzleStorage implements IStorage {
 
   async updateOtsStatus(
     id: string,
-    data: { ots_status: string; ots_proof?: string; bitcoin_block?: number }
+    data: { ots_status: string; ots_proof?: string; bitcoin_block?: number; ots_stamped_at?: Date }
   ): Promise<void> {
     await db.update(predictions).set(data).where(eq(predictions.id, id));
   }

@@ -188,17 +188,20 @@ export async function registerRoutes(
           .catch((err) => console.error("[routes] Confirmation email error:", err));
       }
 
-      // OTS submission — async, Bitcoin anchoring happens in background
-      submitToOts(hash)
-        .then(async (otsProof) => {
-          if (otsProof) {
-            await storage.updateOtsStatus(prediction.id, {
-              ots_status: "pending",
-              ots_proof: otsProof,
-            });
-          }
-        })
-        .catch((err) => console.error("[routes] OTS submission error:", err));
+      // OTS submission — awaited: on Vercel the lambda freezes as soon as the
+      // response is sent, so fire-and-forget promises die silently (same bug
+      // already fixed for emails). If it fails, the cron re-stamps later.
+      const otsProof = await submitToOts(hash).catch((err) => {
+        console.error("[routes] OTS submission error:", err);
+        return null;
+      });
+      if (otsProof) {
+        await storage.updateOtsStatus(prediction.id, {
+          ots_status: "pending",
+          ots_proof: otsProof,
+          ots_stamped_at: new Date(),
+        });
+      }
 
       // Arweave upload — async fire-and-forget, only if content present
       if (hasArweaveContent) {
