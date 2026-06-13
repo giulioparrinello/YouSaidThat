@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
+import { Footer } from "@/components/Footer";
 import { ExternalLink, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -639,39 +640,7 @@ export default function SecurityAudit() {
         </article>
       </div>
 
-      {/* ─── Footer ─── */}
-      <footer className="w-full py-8 border-t border-[#E5E5E5]/50 bg-white/50 mt-4">
-        <div className="max-w-7xl mx-auto px-6 md:px-12 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-[#666]">
-          <span className="font-bold text-[#111] tracking-tight">
-            yousaidthat.org
-          </span>
-          <div className="flex items-center gap-6">
-            <Link href="/docs">
-              <span className="hover:text-[#111] transition-colors cursor-pointer">
-                Documentation
-              </span>
-            </Link>
-            <Link href="/security-audit">
-              <span className="text-[#6366F1] font-medium cursor-pointer">
-                Security Audit
-              </span>
-            </Link>
-            <Link href="/privacy">
-              <span className="hover:text-[#111] transition-colors cursor-pointer">
-                Privacy
-              </span>
-            </Link>
-            <a
-              href="https://github.com/giulioparrinello/YouSaidThat"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-[#111] transition-colors"
-            >
-              GitHub
-            </a>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

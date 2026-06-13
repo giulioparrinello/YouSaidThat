@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { Footer } from "@/components/Footer";
 import { Link } from "wouter";
 import { ShieldCheck } from "lucide-react";
 
@@ -130,6 +131,7 @@ export default function Privacy() {
           </div>
         </motion.div>
       </main>
+      <Footer />
     </div>
   );
 }

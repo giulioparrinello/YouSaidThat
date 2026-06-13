@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { Footer } from "@/components/Footer";
 import {
   CheckCircle2,
   Clock,
@@ -11,9 +12,12 @@ import {
   Fingerprint,
 } from "lucide-react";
 import { Link, useRoute } from "wouter";
+import { useTranslation } from "react-i18next";
 import { api, type AttestationPageResponse } from "@/lib/api";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 export default function Attestation() {
+  const { t } = useTranslation();
   const [, params] = useRoute("/attestation/:id");
   const attestationId = params?.id ?? "";
 
@@ -28,7 +32,7 @@ export default function Attestation() {
     api
       .getAttestation(attestationId)
       .then(setData)
-      .catch((err: any) => setError(err?.message ?? "Not found"))
+      .catch((err: any) => setError(err?.message ?? t("attestation.notFoundError")))
       .finally(() => setLoading(false));
   }, [attestationId]);
 
@@ -46,11 +50,14 @@ export default function Attestation() {
             yousaidthat.org
           </span>
         </Link>
-        <Link href="/verify">
-          <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
-            Verify a prediction
-          </span>
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/verify">
+            <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
+              {t("verify.createLink") === t("verify.createLink") ? t("create.verifyLink") : ""}
+            </span>
+          </Link>
+          <LanguageSwitcher />
+        </div>
       </nav>
 
       <main className="flex-1 flex flex-col items-center px-6 py-12 w-full max-w-lg mx-auto">
@@ -258,6 +265,7 @@ export default function Attestation() {
           </motion.div>
         )}
       </main>
+      <Footer />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { Footer } from "@/components/Footer";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Lock,
@@ -1150,6 +1151,7 @@ export default function UnlockPage() {
           </AnimatePresence>
         </motion.div>
       </main>
+      <Footer />
     </div>
   );
 }

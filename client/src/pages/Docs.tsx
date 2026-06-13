@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
+import { Footer } from "@/components/Footer";
 import { ExternalLink } from "lucide-react";
 
 // ─── Sidebar definition ───────────────────────────────────────────────────────
@@ -313,7 +314,7 @@ tlockEncrypt(text, targetRound) → ct       [client, tlock-js]
 POST /api/predictions/register
   { hash, mode: "sealed_prediction", drand_round, target_datetime, ... }
   ↓
-Server: OTS submit (Bitcoin calendars)     [async]
+Server: OTS submit (Bitcoin calendars)     [sync — proof stored before response]
 Server: RFC 3161 TSA token                 [sync, returned immediately]
   ↓
 Response: { prediction_id, tsa_token, ... }
@@ -330,9 +331,9 @@ SHA-256(utf8(text)) → hash                 [client]
 POST /api/predictions/register
   { hash, mode: "proof_of_existence", content, is_public: true, ... }
   ↓
-Server: OTS submit                         [async]
+Server: OTS submit                         [sync — proof stored before response]
 Server: RFC 3161 TSA token                 [sync]
-Server: Arweave upload                     [async]
+Server: Arweave upload                     [async, retried by cron]
   ↓
 Response: { prediction_id, tsa_token, arweave_tx_id, ... }
           `}</Code>
@@ -524,7 +525,8 @@ Mode : AES-256-GCM (authenticated encryption with 128-bit tag)
 
           <P>
             <strong>ots_proof</strong> is <IC>null</IC> at creation time.
-            Bitcoin confirmation takes 1–3 hours. Poll{" "}
+            Bitcoin aggregation takes 1–3 hours; the server refreshes the
+            status every 6 hours. Poll{" "}
             <IC>GET /api/predictions/:id/ots-status</IC> and update the capsule
             manually once the status changes to <IC>confirmed</IC>.
           </P>
@@ -604,8 +606,12 @@ printf '%s' "your exact plaintext" | sha256sum
 # Decode token
 echo "<base64_tsa_token>" | base64 -d > tsa.tsr
 
-# Verify with OpenSSL (requires the issuing CA cert)
-openssl ts -verify -in tsa.tsr -data <(printf '%s' "your plaintext" | sha256sum -b | cut -d' ' -f1 | xxd -r -p) -CAfile actalis-ca.pem
+# Verify with OpenSSL (requires the issuing CA cert).
+# The message imprint is SHA-256 of the plaintext, i.e. capsule.hash:
+openssl ts -verify -in tsa.tsr -digest <capsule.hash> -CAfile actalis-ca.pem
+
+# Or directly against the plaintext file:
+openssl ts -verify -in tsa.tsr -data plaintext.txt -CAfile actalis-ca.pem
           `}</Code>
           <P>
             The Actalis TSA root certificate is available from{" "}
@@ -622,9 +628,9 @@ openssl ts -verify -in tsa.tsr -data <(printf '%s' "your plaintext" | sha256sum 
 # Install opentimestamps-client
 pip install opentimestamps-client
 
-# Decode and verify
+# Decode and verify (-d takes the SHA-256 digest, i.e. capsule.hash)
 echo "<base64_ots_proof>" | base64 -d > proof.ots
-ots verify proof.ots --hash <capsule.hash>
+ots verify -d <capsule.hash> proof.ots
           `}</Code>
 
           <H3 id="verify-arweave">Arweave (Cleartext Predictions)</H3>
@@ -675,7 +681,7 @@ curl https://arweave.net/<arweave_tx_id>
   "arweave_tx_id": null,                 // populated async for cleartext mode
   "arweave_status": "none"
 }`}
-            notes="OTS confirmation typically takes 1–3 hours. tsa_token is issued synchronously; null only if all three configured TSA providers fail."
+            notes="OTS confirmation typically becomes visible within a few hours (Bitcoin aggregation + 6-hourly server poll). tsa_token is issued synchronously; null only if all three configured TSA providers fail."
           />
 
           <H3 id="api-public">List public predictions</H3>
@@ -838,39 +844,7 @@ curl https://arweave.net/<arweave_tx_id>
         </article>
       </div>
 
-      {/* ─── Footer ─── */}
-      <footer className="w-full py-8 border-t border-[#E5E5E5]/50 bg-white/50 mt-4">
-        <div className="max-w-7xl mx-auto px-6 md:px-12 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-[#666]">
-          <span className="font-bold text-[#111] tracking-tight">
-            yousaidthat.org
-          </span>
-          <div className="flex items-center gap-6">
-            <Link href="/docs">
-              <span className="text-[#6366F1] font-medium cursor-pointer">
-                Documentation
-              </span>
-            </Link>
-            <Link href="/security-audit">
-              <span className="hover:text-[#111] transition-colors cursor-pointer">
-                Security Audit
-              </span>
-            </Link>
-            <Link href="/privacy">
-              <span className="hover:text-[#111] transition-colors cursor-pointer">
-                Privacy
-              </span>
-            </Link>
-            <a
-              href="https://github.com/giulioparrinello/YouSaidThat"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-[#111] transition-colors"
-            >
-              GitHub
-            </a>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

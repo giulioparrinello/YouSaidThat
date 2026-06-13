@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { Footer } from "@/components/Footer";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Lock,
@@ -18,6 +19,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useTranslation, Trans } from "react-i18next";
 import {
   hashText,
   hashBinary,
@@ -31,11 +33,12 @@ import {
 } from "@/lib/crypto";
 import { api } from "@/lib/api";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 type Mode = "proof_of_existence" | "sealed_prediction";
 type Visibility = "cleartext" | "encrypted";
 
-const STEPS = ["Mode", "Prediction", "Time-Lock", "Options", "Seal"];
+const STEP_KEYS = ["mode", "prediction", "timelock", "options", "seal"] as const;
 
 const currentYear = new Date().getFullYear();
 
@@ -53,9 +56,10 @@ function maxDateLocal(): string {
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 function StepBar({ current }: { current: number }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-2 mb-8">
-      {STEPS.map((label, i) => (
+      {STEP_KEYS.map((key, i) => (
         <div key={i} className="flex items-center gap-2">
           <div
             className={`flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-mono font-bold transition-all duration-300 ${
@@ -73,9 +77,9 @@ function StepBar({ current }: { current: number }) {
               i === current ? "text-[#111] font-medium" : "text-[#999]"
             }`}
           >
-            {label}
+            {t(`create.steps.${key}`)}
           </span>
-          {i < STEPS.length - 1 && (
+          {i < STEP_KEYS.length - 1 && (
             <div
               className={`h-px w-6 transition-colors ${
                 i < current ? "bg-[#111]" : "bg-[#E5E5E5]"
@@ -96,6 +100,7 @@ function KeywordInput({
   keywords: string[];
   onChange: (kw: string[]) => void;
 }) {
+  const { t } = useTranslation();
   const [input, setInput] = useState("");
 
   const add = () => {
@@ -112,7 +117,7 @@ function KeywordInput({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
-          placeholder={keywords.length < 3 ? "Add keyword… (Enter)" : "Max 3 keywords"}
+          placeholder={keywords.length < 3 ? t("create.addKeywordPlaceholder") : t("create.maxKeywords")}
           disabled={keywords.length >= 3}
           maxLength={30}
           className="flex-1 h-10 rounded-full border border-[#E5E5E5] bg-[#FAFAFA] px-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] disabled:opacity-40 transition-all"
@@ -122,7 +127,7 @@ function KeywordInput({
           disabled={!input.trim() || keywords.length >= 3}
           className="h-10 px-4 rounded-full bg-[#111] text-white text-sm disabled:opacity-30 hover:bg-[#222] transition-colors"
         >
-          Add
+          {t("create.add")}
         </button>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -144,6 +149,7 @@ function KeywordInput({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function Create() {
+  const { t } = useTranslation();
   const [step, setStep] = useState(0);
 
   // Form state
@@ -244,9 +250,9 @@ export default function Create() {
       let hash: string;
       if (inputTab === "file" && fileHash) {
         hash = fileHash;
-        setSealStep("Using file SHA-256 hash…");
+        setSealStep(t("create.sealing.usingFile"));
       } else {
-        setSealStep("Computing SHA-256 hash…");
+        setSealStep(t("create.sealing.hashing"));
         hash = await hashText(text.trim());
       }
 
@@ -260,13 +266,13 @@ export default function Create() {
 
       if (mode === "sealed_prediction") {
         // v2: drand timelock encryption + RSA keypair for attestation
-        setSealStep("Generating RSA-PSS key pair…");
+        setSealStep(t("create.sealing.keypair"));
         const kp = await generateKeyPair();
         publicKeyPem = kp.publicKeyPem;
         privateKeyPem = kp.privateKeyPem;
 
         if (inputTab === "text" && targetDatetime) {
-          setSealStep("Encrypting with drand timelock…");
+          setSealStep(t("create.sealing.tlock"));
           const targetMs = new Date(targetDatetime).getTime();
           const tlock = await tlockEncrypt(text.trim(), targetMs);
           tlockCiphertext = tlock.ciphertext;
@@ -274,7 +280,7 @@ export default function Create() {
         }
       } else if (mode === "proof_of_existence" && visibility === "encrypted" && inputTab === "text") {
         // Proof of existence — encrypted sub-mode: AES encrypt only
-        setSealStep("Encrypting with AES-256-GCM…");
+        setSealStep(t("create.sealing.aes"));
         const enc = await encryptContent(text.trim());
         encryptedContentVal = enc.encryptedContent;
         nonce = enc.nonce;
@@ -282,7 +288,7 @@ export default function Create() {
       }
       // Proof of existence — cleartext sub-mode: no crypto, content sent directly
 
-      setSealStep("Registering on YouSaidThat…");
+      setSealStep(t("create.sealing.register"));
 
       // Determine effective datetime string
       const effectiveDatetime =
@@ -350,16 +356,16 @@ export default function Create() {
         arweave_tx_id: res.arweave_tx_id ?? null,
       };
 
-      setSealStep("Generating capsule file…");
+      setSealStep(t("create.sealing.capsule"));
       downloadCapsule(capsule);
       setSealed(capsule);
     } catch (err: any) {
-      setError(err?.message ?? "Something went wrong. Please try again.");
+      setError(err?.message ?? t("common.error"));
     } finally {
       setSealing(false);
       setSealStep("");
     }
-  }, [text, fileHash, inputTab, mode, visibility, targetYear, targetDatetime, poeDatetime, poeHasDate, keywords, authorName, email, isPublic]);
+  }, [text, fileHash, inputTab, mode, visibility, targetYear, targetDatetime, poeDatetime, poeHasDate, keywords, authorName, email, isPublic, t]);
 
   // Whether current mode+visibility uses encryption
   const isEncrypted =
@@ -375,11 +381,14 @@ export default function Create() {
             yousaidthat.org
           </span>
         </Link>
-        <Link href="/verify">
-          <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
-            Verify a prediction
-          </span>
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/verify">
+            <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
+              {t("create.verifyLink")}
+            </span>
+          </Link>
+          <LanguageSwitcher />
+        </div>
       </nav>
 
       {/* Content */}
@@ -391,10 +400,10 @@ export default function Create() {
           className="w-full"
         >
           <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1] mb-2">
-            New Prediction
+            {t("create.kicker")}
           </p>
           <h1 className="text-3xl font-bold tracking-tight mb-8">
-            Seal your vision
+            {t("create.title")}
           </h1>
 
           <StepBar current={step} />
@@ -411,7 +420,7 @@ export default function Create() {
                 className="space-y-4"
               >
                 <p className="text-sm text-[#666] leading-relaxed">
-                  Choose how your prediction is stored. Both modes anchor your hash to the Bitcoin blockchain.
+                  {t("create.intro")}
                 </p>
                 <div className="space-y-3">
                   {/* Proof of Existence */}
@@ -434,15 +443,15 @@ export default function Create() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <p className="text-sm font-semibold">Proof of Existence</p>
+                            <p className="text-sm font-semibold">{t("create.poeTitle")}</p>
                             <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
                               mode === "proof_of_existence"
                                 ? "bg-[#6366F1]/10 text-[#6366F1]"
                                 : "bg-[#F5F5F5] text-[#999]"
-                            }`}>Public-ready</span>
+                            }`}>{t("create.poeBadge")}</span>
                           </div>
                           <p className="text-[11px] text-[#666] leading-relaxed mb-2">
-                            Your text is hashed and timestamped. Content is anchored to Arweave permanently.
+                            {t("create.poeDesc")}
                           </p>
                           <div className="flex flex-wrap gap-1">
                             {["SHA-256 hash", "Bitcoin OTS anchor", "RFC 3161 TSA", "Arweave permanent storage"].map((d) => (
@@ -467,7 +476,7 @@ export default function Create() {
                       <div className="px-5 pb-5">
                         <div className="border-t border-[#E5E5E5]/60 pt-4">
                           <p className="text-[10px] font-mono uppercase tracking-wider text-[#999] mb-3">
-                            Visibility sub-mode
+                            {t("create.visibilityLabel")}
                           </p>
                           <div className="grid grid-cols-2 gap-2">
                             <button
@@ -479,10 +488,10 @@ export default function Create() {
                               }`}
                             >
                               <p className={`text-xs font-semibold mb-1 ${visibility === "cleartext" ? "text-[#6366F1]" : "text-[#111]"}`}>
-                                Cleartext
+                                {t("create.cleartext")}
                               </p>
                               <p className="text-[10px] text-[#666] leading-relaxed">
-                                Text visible on community feed. Verifiable by anyone.
+                                {t("create.cleartextDesc")}
                               </p>
                             </button>
                             <button
@@ -494,10 +503,10 @@ export default function Create() {
                               }`}
                             >
                               <p className={`text-xs font-semibold mb-1 ${visibility === "encrypted" ? "text-[#6366F1]" : "text-[#111]"}`}>
-                                Encrypted
+                                {t("create.encrypted")}
                               </p>
                               <p className="text-[10px] text-[#666] leading-relaxed">
-                                AES-256-GCM encrypted. Key stored in your PDF/capsule.
+                                {t("create.encryptedDesc")}
                               </p>
                             </button>
                           </div>
@@ -523,15 +532,15 @@ export default function Create() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <p className="text-sm font-semibold">Sealed Prediction</p>
+                          <p className="text-sm font-semibold">{t("create.sealedTitle")}</p>
                           <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
                             mode === "sealed_prediction"
                               ? "bg-[#6366F1]/10 text-[#6366F1]"
                               : "bg-[#F5F5F5] text-[#999]"
-                          }`}>Private</span>
+                          }`}>{t("create.sealedBadge")}</span>
                         </div>
                         <p className="text-[11px] text-[#666] leading-relaxed mb-2">
-                          Encrypted with drand timelock (IBE/BLS12-381). Mathematically impossible to decrypt before your chosen date.
+                          {t("create.sealedDesc")}
                         </p>
                         <div className="flex flex-wrap gap-1">
                           {["drand IBE timelock", "RSA-PSS keypair", "Bitcoin OTS anchor", "Zero-knowledge"].map((d) => (
@@ -571,25 +580,25 @@ export default function Create() {
                     : "bg-[#F5F5F5] border border-[#E5E5E5] text-[#666]"
                 }`}>
                   {isEncrypted
-                    ? <><Lock className="w-3 h-3" /> Text will be encrypted locally — server never sees plaintext</>
-                    : <><FileText className="w-3 h-3" /> Content will be stored publicly on Arweave</>
+                    ? <><Lock className="w-3 h-3" /> {t("create.encryptedBadgeNote")}</>
+                    : <><FileText className="w-3 h-3" /> {t("create.publicBadgeNote")}</>
                   }
                 </div>
 
                 {/* Tab switcher — file upload only for proof_of_existence */}
                 {mode === "proof_of_existence" && (
                   <div className="flex rounded-xl border border-[#E5E5E5] bg-[#FAFAFA] p-1 gap-1">
-                    {(["text", "file"] as const).map((t) => (
+                    {(["text", "file"] as const).map((tabKey) => (
                       <button
-                        key={t}
-                        onClick={() => setInputTab(t)}
+                        key={tabKey}
+                        onClick={() => setInputTab(tabKey)}
                         className={`flex-1 h-8 rounded-lg text-xs font-medium transition-all capitalize ${
-                          inputTab === t
+                          inputTab === tabKey
                             ? "bg-white shadow-sm text-[#111] border border-[#E5E5E5]"
                             : "text-[#999] hover:text-[#666]"
                         }`}
                       >
-                        {t === "text" ? "Write text" : "Upload file / PDF"}
+                        {tabKey === "text" ? t("create.writeText") : t("create.uploadFile")}
                       </button>
                     ))}
                   </div>
@@ -599,12 +608,12 @@ export default function Create() {
                 {(mode === "sealed_prediction" || inputTab === "text") && (
                   <div>
                     <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
-                      Your prediction
+                      {t("create.yourPrediction")}
                     </label>
                     <textarea
                       value={text}
                       onChange={(e) => setText(e.target.value)}
-                      placeholder="Write your prediction about the future…"
+                      placeholder={t("create.textPlaceholder")}
                       rows={6}
                       maxLength={10000}
                       className="w-full rounded-2xl border border-[#E5E5E5] bg-white p-4 text-sm text-[#111] placeholder:text-[#CCC] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] resize-none transition-all leading-relaxed"
@@ -637,15 +646,15 @@ export default function Create() {
                         {fileHashing ? (
                           <>
                             <Loader2 className="w-8 h-8 text-[#6366F1] animate-spin" />
-                            <p className="text-sm text-[#666]">Computing SHA-256…</p>
+                            <p className="text-sm text-[#666]">{t("create.computingHash")}</p>
                           </>
                         ) : (
                           <>
                             <Upload className="w-8 h-8 text-[#CCC]" />
                             <p className="text-sm text-[#666] text-center">
-                              Drop any file (PDF, image, document)
+                              {t("create.dropAnyFile")}
                             </p>
-                            <p className="text-xs text-[#BBB]">or click to browse</p>
+                            <p className="text-xs text-[#BBB]">{t("create.orBrowse")}</p>
                           </>
                         )}
                       </div>
@@ -671,8 +680,7 @@ export default function Create() {
                       </div>
                     )}
                     <p className="text-[11px] text-[#999] leading-relaxed">
-                      The file is hashed locally in your browser. It is never uploaded.
-                      The hash is a unique fingerprint of the file's exact content.
+                      {t("create.fileNote")}
                     </p>
                   </div>
                 )}
@@ -693,7 +701,7 @@ export default function Create() {
                   /* ─ drand timelock: exact datetime picker ─ */
                   <div>
                     <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-3 block">
-                      Unlock date &amp; time
+                      {t("create.unlockLabel")}
                     </label>
                     <div className="flex gap-2">
                       <input
@@ -721,14 +729,14 @@ export default function Create() {
                     {targetDatetime && (
                       <div className="mt-3 space-y-1">
                         <p className="text-xs text-[#999] font-mono">
-                          Unlocks: {new Date(targetDatetime).toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" })}
+                          {t("create.unlocksAt", { date: new Date(targetDatetime).toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" }) })}
                         </p>
                         {(() => {
                           try {
                             const round = drandRoundAt(new Date(targetDatetime).getTime());
                             return (
                               <p className="text-[10px] text-[#BBB] font-mono">
-                                drand quicknet round #{round.toLocaleString()}
+                                {t("create.drandRound", { round: round.toLocaleString() })}
                               </p>
                             );
                           } catch {
@@ -740,7 +748,7 @@ export default function Create() {
                     <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-[#6366F1]/5 border border-[#6366F1]/20">
                       <Lock className="w-3.5 h-3.5 text-[#6366F1] mt-0.5 shrink-0" />
                       <p className="text-[11px] text-[#6366F1] leading-relaxed">
-                        Encrypted with drand IBE — mathematically impossible to decrypt before this moment, even with your capsule file.
+                        {t("create.tlockNote")}
                       </p>
                     </div>
                   </div>
@@ -749,8 +757,8 @@ export default function Create() {
                   <div className="space-y-4">
                     <div>
                       <p className="text-sm text-[#444] leading-relaxed mb-3">
-                        Entro quando prevedi che accada?{" "}
-                        <span className="text-[#999] text-xs">(opzionale)</span>
+                        {t("create.poeQuestion")}{" "}
+                        <span className="text-[#999] text-xs">({t("common.optional")})</span>
                       </p>
 
                       <button
@@ -764,7 +772,7 @@ export default function Create() {
                         <div className="flex items-center gap-2">
                           <Clock className={`w-4 h-4 ${poeHasDate ? "text-[#6366F1]" : "text-[#999]"}`} />
                           <span className={`text-sm font-medium ${poeHasDate ? "text-[#6366F1]" : "text-[#444]"}`}>
-                            Aggiungi una data target
+                            {t("create.addTargetDate")}
                           </span>
                         </div>
                         <div className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${poeHasDate ? "bg-[#6366F1]" : "bg-[#E5E5E5]"}`}>
@@ -803,7 +811,7 @@ export default function Create() {
                           </div>
                           {poeDatetime && (
                             <p className="text-xs text-[#999] font-mono">
-                              Gate: {new Date(poeDatetime).toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" })}
+                              {t("create.gate", { date: new Date(poeDatetime).toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" }) })}
                             </p>
                           )}
                         </motion.div>
@@ -811,7 +819,7 @@ export default function Create() {
 
                       {!poeHasDate && (
                         <p className="text-xs text-[#BBB] mt-2 font-mono">
-                          Senza data: la prediction è verificabile in qualsiasi momento.
+                          {t("create.noDateNote")}
                         </p>
                       )}
                     </div>
@@ -820,8 +828,8 @@ export default function Create() {
 
                 <div>
                   <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
-                    Keywords{" "}
-                    <span className="normal-case text-[#CCC]">(optional, up to 3)</span>
+                    {t("create.keywordsLabel")}{" "}
+                    <span className="normal-case text-[#CCC]">{t("create.keywordsOptional")}</span>
                   </label>
                   <KeywordInput keywords={keywords} onChange={setKeywords} />
                 </div>
@@ -840,26 +848,26 @@ export default function Create() {
               >
                 <div>
                   <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
-                    Nome autore{" "}
-                    <span className="normal-case text-[#CCC]">(opzionale)</span>
+                    {t("create.authorLabel")}{" "}
+                    <span className="normal-case text-[#CCC]">{t("create.authorOptional")}</span>
                   </label>
                   <input
                     type="text"
                     value={authorName}
                     onChange={(e) => setAuthorName(e.target.value)}
-                    placeholder="Il tuo nome o alias"
+                    placeholder={t("create.authorPlaceholder")}
                     maxLength={100}
                     className="w-full h-11 rounded-full border border-[#E5E5E5] bg-white px-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
                   />
                   <p className="text-[10px] text-[#BBB] mt-1.5 ml-1">
-                    Visibile nel feed pubblico e nel certificato PDF.
+                    {t("create.authorNote")}
                   </p>
                 </div>
 
                 <div>
                   <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
-                    Email reminder{" "}
-                    <span className="normal-case text-[#CCC]">(optional)</span>
+                    {t("create.emailLabel")}{" "}
+                    <span className="normal-case text-[#CCC]">({t("common.optional")})</span>
                   </label>
                   <input
                     type="email"
@@ -871,7 +879,7 @@ export default function Create() {
                   <div className="mt-2 flex items-start gap-2 p-3 rounded-xl bg-[#FAFAFA] border border-[#E5E5E5]">
                     <ShieldCheck className="w-4 h-4 text-[#6366F1] mt-0.5 shrink-0" />
                     <p className="text-[11px] text-[#666] leading-relaxed">
-                      You'll receive a confirmation email first. Your reminder is queued only after you confirm ownership of the address.
+                      {t("create.emailNote")}
                     </p>
                   </div>
                 </div>
@@ -891,12 +899,12 @@ export default function Create() {
                       />
                       <div className="text-left">
                         <p className="text-sm font-semibold">
-                          Make prediction public
+                          {t("create.makePublic")}
                         </p>
                         <p className="text-[11px] text-[#666]">
                           {mode === "proof_of_existence" && visibility === "cleartext"
-                            ? "Shows full text on community feed. Verifiable by anyone."
-                            : "Shows hash preview + year + keywords on the public feed."}
+                            ? t("create.publicDescCleartext")
+                            : t("create.publicDescHash")}
                         </p>
                       </div>
                     </div>
@@ -931,35 +939,35 @@ export default function Create() {
                     {/* Summary card */}
                     <div className="bg-white border border-[#E5E5E5] rounded-3xl p-6 space-y-4">
                       <p className="text-[10px] font-mono tracking-widest uppercase text-[#999]">
-                        Prediction summary
+                        {t("create.summary")}
                       </p>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
                           <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                            Mode
+                            {t("create.modeLabel")}
                           </p>
                           <p className="font-medium">
                             {mode === "sealed_prediction"
-                              ? "Sealed Prediction"
-                              : `Proof of Existence (${visibility})`}
+                              ? t("create.sealedTitle")
+                              : `${t("create.poeTitle")} (${visibility === "cleartext" ? t("create.cleartext") : t("create.encrypted")})`}
                           </p>
                         </div>
                         <div>
                           <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                            Unlocks
+                            {t("create.unlocksLabel")}
                           </p>
                           <p className="font-medium">
                             {mode === "sealed_prediction" && targetDatetime
                               ? new Date(targetDatetime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
                               : poeHasDate && poeDatetime
                               ? new Date(poeDatetime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-                              : "No time gate"}
+                              : t("create.noGate")}
                           </p>
                         </div>
                         {inputTab === "file" && fileName && (
                           <div className="col-span-2">
                             <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                              File
+                              {t("create.fileLabel")}
                             </p>
                             <p className="text-sm font-medium truncate">{fileName}</p>
                           </div>
@@ -967,7 +975,7 @@ export default function Create() {
                         {keywords.length > 0 && (
                           <div className="col-span-2">
                             <p className="text-[10px] font-mono text-[#BBB] uppercase mb-1">
-                              Keywords
+                              {t("create.keywordsLabel")}
                             </p>
                             <div className="flex flex-wrap gap-1">
                               {keywords.map((k) => (
@@ -984,11 +992,11 @@ export default function Create() {
                         <div className="col-span-2 flex items-center gap-1.5">
                           {isPublic ? (
                             <span className="text-[10px] font-mono text-green-600 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">
-                              PUBLIC
+                              {t("create.publicChip")}
                             </span>
                           ) : (
                             <span className="text-[10px] font-mono text-[#666] bg-[#F5F5F5] border border-[#E5E5E5] px-2 py-0.5 rounded-full">
-                              PRIVATE
+                              {t("create.privateChip")}
                             </span>
                           )}
                         </div>
@@ -999,17 +1007,16 @@ export default function Create() {
                     <div className="flex items-start gap-2 p-4 rounded-2xl bg-amber-50 border border-amber-200">
                       <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
                       <p className="text-xs text-amber-800 leading-relaxed">
-                        {mode === "sealed_prediction" ? (
-                          <><strong>Your .capsule file is your only key.</strong>{" "}
-                          Store it safely. The drand timelock ciphertext and your RSA signing key are inside.
-                          If you lose it, your prediction cannot be revealed.</>
-                        ) : visibility === "encrypted" ? (
-                          <><strong>Keep your .capsule file safe.</strong>{" "}
-                          It contains the AES-256 decryption key. Without it you cannot recover the plaintext.</>
-                        ) : (
-                          <><strong>Keep your .capsule file safe.</strong>{" "}
-                          It contains the hash and proof tokens needed to verify authorship later.</>
-                        )}
+                        <Trans
+                          i18nKey={
+                            mode === "sealed_prediction"
+                              ? "create.warnSealed"
+                              : visibility === "encrypted"
+                              ? "create.warnEncrypted"
+                              : "create.warnCleartext"
+                          }
+                          components={{ b: <strong /> }}
+                        />
                       </p>
                     </div>
 
@@ -1032,12 +1039,12 @@ export default function Create() {
                       ) : mode === "sealed_prediction" ? (
                         <>
                           <Lock className="w-4 h-4" />
-                          Generate Keys & Seal
+                          {t("create.generateSeal")}
                         </>
                       ) : (
                         <>
                           <CheckCircle2 className="w-4 h-4" />
-                          Hash & Register
+                          {t("create.hashRegister")}
                         </>
                       )}
                     </button>
@@ -1055,7 +1062,7 @@ export default function Create() {
                           <CheckCircle2 className="w-4 h-4 text-green-500" />
                         </div>
                         <div>
-                          <p className="text-sm font-bold">Prediction sealed</p>
+                          <p className="text-sm font-bold">{t("create.sealedOk")}</p>
                           <p className="text-[10px] font-mono text-[#999]">
                             {predictionId?.slice(0, 8)}…
                           </p>
@@ -1067,28 +1074,28 @@ export default function Create() {
                           <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 border border-green-200">
                             <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
                             <span className="text-[10px] font-mono text-green-700 uppercase leading-tight">
-                              Bitcoin{otsBitcoinBlock ? ` #${otsBitcoinBlock.toLocaleString()}` : " Anchored"}
+                              {otsBitcoinBlock ? `Bitcoin #${otsBitcoinBlock.toLocaleString()}` : t("create.bitcoinAnchored")}
                             </span>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
                             <Clock className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
                             <span className="text-[10px] font-mono text-amber-700 uppercase">
-                              OTS Pending
+                              {t("create.otsPending")}
                             </span>
                           </div>
                         )}
                         <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 border border-green-100">
                           <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
                           <span className="text-[10px] font-mono text-green-700 uppercase">
-                            TSA Signed
+                            {t("create.tsaSigned")}
                           </span>
                         </div>
                         {arweaveTxId ? (
                           <div className="col-span-2 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-100">
                             <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
                             <span className="text-[10px] font-mono text-indigo-700 uppercase">
-                              Arweave Stored
+                              {t("create.arweaveStored")}
                             </span>
                             <a
                               href={`https://arweave.net/${arweaveTxId}`}
@@ -1103,7 +1110,7 @@ export default function Create() {
                           <div className="col-span-2 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
                             <Clock className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
                             <span className="text-[10px] font-mono text-amber-700 uppercase">
-                              Arweave upload in progress…
+                              {t("create.arweaveInProgress")}
                             </span>
                           </div>
                         ) : null}
@@ -1113,8 +1120,7 @@ export default function Create() {
                     <div className="flex items-start gap-2 p-4 rounded-2xl bg-amber-50 border border-amber-200">
                       <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
                       <p className="text-xs text-amber-800 leading-relaxed">
-                        Your capsule was downloaded. Store it somewhere safe —
-                        it's your only key to unlock this prediction.
+                        {t("create.capsuleDownloaded")}
                       </p>
                     </div>
 
@@ -1128,8 +1134,8 @@ export default function Create() {
                     >
                       <Download className="w-4 h-4" />
                       {otsStatus === "confirmed"
-                        ? "Re-download with OTS proof"
-                        : "Re-download capsule"}
+                        ? t("create.redownloadOts")
+                        : t("create.redownload")}
                     </button>
 
                     <button
@@ -1161,12 +1167,12 @@ export default function Create() {
                       className="w-full h-12 rounded-full border border-[#6366F1]/30 bg-[#6366F1]/5 text-[#6366F1] text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#6366F1]/10 transition-colors"
                     >
                       <FileText className="w-4 h-4" />
-                      Download Certificate (PDF)
+                      {t("create.downloadCert")}
                     </button>
 
                     <Link href="/">
                       <button className="w-full h-12 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] transition-colors">
-                        Back to home
+                        {t("create.backHome")}
                         <ArrowRight className="w-4 h-4" />
                       </button>
                     </Link>
@@ -1185,16 +1191,16 @@ export default function Create() {
                   className="h-11 px-5 rounded-full border border-[#E5E5E5] text-sm flex items-center gap-1.5 hover:bg-[#F5F5F5] transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4" />
-                  Back
+                  {t("common.back")}
                 </button>
               )}
-              {step < STEPS.length - 1 && (
+              {step < STEP_KEYS.length - 1 && (
                 <button
                   onClick={() => setStep((s) => s + 1)}
                   disabled={!canProceed}
                   className="flex-1 h-11 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] transition-colors disabled:opacity-40"
                 >
-                  Continue
+                  {t("create.continue")}
                   <ArrowRight className="w-4 h-4" />
                 </button>
               )}
@@ -1202,6 +1208,7 @@ export default function Create() {
           )}
         </motion.div>
       </main>
+      <Footer />
     </div>
   );
 }
