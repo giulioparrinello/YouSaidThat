@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Footer } from "@/components/Footer";
 import {
   CheckCircle2,
   Clock,
@@ -53,7 +52,7 @@ export default function Attestation() {
         <div className="flex items-center gap-4">
           <Link href="/verify">
             <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
-              {t("verify.createLink") === t("verify.createLink") ? t("create.verifyLink") : ""}
+              {t("create.verifyLink")}
             </span>
           </Link>
           <LanguageSwitcher />
@@ -82,11 +81,11 @@ export default function Attestation() {
             animate={{ opacity: 1 }}
             className="text-center space-y-4 py-20"
           >
-            <p className="font-semibold text-[#111]">Attestation not found</p>
+            <p className="font-semibold text-[#111]">{t("attestation.notFoundTitle")}</p>
             <p className="text-sm text-[#666]">{error}</p>
             <Link href="/">
               <button className="h-10 px-6 rounded-full bg-[#111111] text-white text-xs hover:bg-[#222] transition-colors">
-                Go home
+                {t("attestation.goHome")}
               </button>
             </Link>
           </motion.div>
@@ -100,7 +99,7 @@ export default function Attestation() {
             className="w-full"
           >
             <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1] mb-6">
-              Verified Attestation
+              {t("attestation.kicker")}
             </p>
 
             {/* Certificate card */}
@@ -110,7 +109,7 @@ export default function Attestation() {
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-[10px] font-mono uppercase tracking-widest text-[#BBB] mb-1">
-                      Prediction author
+                      {t("attestation.authorLabel")}
                     </p>
                     <p className="text-2xl font-bold tracking-tight">
                       {data.display_name}
@@ -123,8 +122,8 @@ export default function Attestation() {
 
                 <p className="text-sm text-[#555] leading-relaxed">
                   {data.prediction.mode === "sealed_prediction"
-                    ? "Sealed and encrypted this prediction cryptographically, then claimed authorship after the target year."
-                    : "Registered this prediction as proof of existence and has now claimed authorship."}
+                    ? t("attestation.descSealed")
+                    : t("attestation.descPoe")}
                 </p>
 
                 <div className="space-y-3 py-4 border-t border-b border-[#F5F5F5]">
@@ -133,7 +132,7 @@ export default function Attestation() {
                     <Hash className="w-4 h-4 text-[#BBB] mt-0.5 shrink-0" />
                     <div className="min-w-0">
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                        Hash (SHA-256)
+                        {t("attestation.hashLabel")}
                       </p>
                       <p className="text-xs font-mono text-[#444] break-all">
                         {data.prediction.hash}
@@ -145,13 +144,13 @@ export default function Attestation() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                        Target Year
+                        {t("attestation.targetYear")}
                       </p>
                       <p className="text-sm font-semibold">{data.prediction.target_year}</p>
                     </div>
                     <div>
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                        Registered
+                        {t("attestation.registered")}
                       </p>
                       <p className="text-sm text-[#555]">
                         {new Date(data.prediction.timestamp_utc).toLocaleDateString(
@@ -162,7 +161,7 @@ export default function Attestation() {
                     </div>
                     <div>
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                        Mode
+                        {t("attestation.mode")}
                       </p>
                       <p className="text-sm capitalize">
                         {data.prediction.mode.replace(/_/g, " ")}
@@ -170,7 +169,7 @@ export default function Attestation() {
                     </div>
                     <div>
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                        Attested
+                        {t("attestation.attested")}
                       </p>
                       <p className="text-sm text-[#555]">
                         {new Date(data.created_at).toLocaleDateString(
@@ -185,7 +184,7 @@ export default function Attestation() {
                   {data.prediction.keywords && data.prediction.keywords.length > 0 && (
                     <div>
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-1">
-                        Keywords
+                        {t("verify.keywords")}
                       </p>
                       <div className="flex flex-wrap gap-1">
                         {data.prediction.keywords.map((k) => (
@@ -206,13 +205,13 @@ export default function Attestation() {
                   {data.prediction.ots_status === "confirmed" ? (
                     <span className="flex items-center gap-1.5 text-[10px] font-mono text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full">
                       <CheckCircle2 className="w-3 h-3" />
-                      Bitcoin Anchored
+                      {t("verify.bitcoinAnchored")}
                       {data.prediction.bitcoin_block && ` · #${data.prediction.bitcoin_block.toLocaleString()}`}
                     </span>
                   ) : (
                     <span className="flex items-center gap-1.5 text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
                       <Clock className="w-3 h-3" />
-                      OTS Pending
+                      {t("attestation.otsPending")}
                     </span>
                   )}
                   {data.prediction.tsa_token && (
@@ -246,26 +245,25 @@ export default function Attestation() {
                 {copied ? (
                   <>
                     <Check className="w-4 h-4 text-green-500" />
-                    Copied
+                    {t("prediction.copied")}
                   </>
                 ) : (
                   <>
                     <Copy className="w-4 h-4" />
-                    Copy link
+                    {t("prediction.copyLink")}
                   </>
                 )}
               </button>
               <Link href={`/verify`}>
                 <button className="h-11 px-5 rounded-full border border-[#E5E5E5] text-sm flex items-center gap-2 hover:bg-[#F5F5F5] transition-colors">
                   <ExternalLink className="w-4 h-4" />
-                  Verify hash
+                  {t("attestation.verifyHash")}
                 </button>
               </Link>
             </div>
           </motion.div>
         )}
       </main>
-      <Footer />
     </div>
   );
 }

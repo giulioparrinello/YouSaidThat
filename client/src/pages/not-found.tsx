@@ -1,6 +1,5 @@
 import { Link } from "wouter";
 import { ChevronRight } from "lucide-react";
-import { Footer } from "@/components/Footer";
 import { useTranslation } from "react-i18next";
 
 export default function NotFound() {
@@ -28,7 +27,6 @@ export default function NotFound() {
           </span>
         </Link>
       </div>
-      <Footer />
     </div>
   );
 }

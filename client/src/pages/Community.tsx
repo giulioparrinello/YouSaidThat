@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Footer } from "@/components/Footer";
 import { motion, useInView } from "framer-motion";
 import {
   Lock,
@@ -469,7 +468,6 @@ export default function Community() {
           </motion.div>
         )}
       </main>
-      <Footer />
     </div>
   );
 }

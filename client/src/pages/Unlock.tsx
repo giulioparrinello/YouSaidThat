@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { Footer } from "@/components/Footer";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Lock,
@@ -19,6 +18,7 @@ import {
   Download,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { useTranslation, Trans } from "react-i18next";
 import {
   decryptContent,
   decryptBytes,
@@ -32,8 +32,10 @@ import {
 import { decryptPdf, extractSeal, stripSeal, isPdfBytes } from "@/lib/pdfCrypto";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
 import { api } from "@/lib/api";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 export default function UnlockPage() {
+  const { t } = useTranslation();
   const [capsule, setCapsule] = useState<CapsuleData | null>(null);
   const [dragging, setDragging] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -92,9 +94,7 @@ export default function UnlockPage() {
       if (isPdfBytes(bytes)) {
         const seal = extractSeal(bytes);
         if (!seal) {
-          setFileError(
-            "This PDF has no YouSaidThat seal — it wasn't sealed here, or it was re-saved and the seal was stripped."
-          );
+          setFileError(t("unlock.noSeal"));
           return;
         }
         sealedPdfBytesRef.current = bytes;
@@ -131,7 +131,7 @@ export default function UnlockPage() {
       const c = await loadCapsule(file);
       setCapsule(c);
     } catch (err: any) {
-      setFileError(err?.message ?? "Could not read the file.");
+      setFileError(err?.message ?? t("unlock.readFileError"));
     }
   };
 
@@ -154,9 +154,9 @@ export default function UnlockPage() {
         capsule.tlock_ciphertext &&
         sealedPdfBytesRef.current
       ) {
-        setDecryptStep("Fetching drand beacon…");
+        setDecryptStep(t("unlock.fetchBeacon"));
         const password = await tlockDecrypt(capsule.tlock_ciphertext);
-        setDecryptStep("Decrypting PDF…");
+        setDecryptStep(t("unlock.decryptingPdf"));
         // Strip the trailing YST seal so qpdf sees a clean, valid PDF.
         const bytes = await decryptPdf(stripSeal(sealedPdfBytesRef.current), password);
         // qpdf re-serialises the PDF, so the decrypted bytes are NOT byte-identical
@@ -178,9 +178,9 @@ export default function UnlockPage() {
 
       // ── Sealed document (PDF) container: tlock unseals the AES key, then AES decrypts ──
       if (capsule.artifact_type === "pdf" && capsule.tlock_ciphertext && capsule.encrypted_file) {
-        setDecryptStep("Fetching drand beacon…");
+        setDecryptStep(t("unlock.fetchBeacon"));
         const keyB64 = await tlockDecrypt(capsule.tlock_ciphertext);
-        setDecryptStep("Decrypting PDF…");
+        setDecryptStep(t("unlock.decryptingPdf"));
         const bytes = await decryptBytes(capsule.encrypted_file, capsule.file_nonce!, keyB64);
         const h = await hashBinary(bytes);
         setHashMatch(h === capsule.hash);
@@ -198,11 +198,11 @@ export default function UnlockPage() {
 
       if (capsule.lock_mode === "tlock" && capsule.tlock_ciphertext) {
         // v2: drand timelock decrypt (requires network call to drand API)
-        setDecryptStep("Fetching drand beacon…");
+        setDecryptStep(t("unlock.fetchBeacon"));
         plaintext = await tlockDecrypt(capsule.tlock_ciphertext);
       } else {
         // v1: local AES-256-GCM decrypt
-        setDecryptStep("Decrypting…");
+        setDecryptStep(t("unlock.decrypting"));
         plaintext = await decryptContent(
           capsule.encrypted_content!,
           capsule.nonce!,
@@ -222,11 +222,9 @@ export default function UnlockPage() {
         msg.includes("not found") ||
         msg.includes("future")
       ) {
-        setDecryptError(
-          "The drand beacon for this round is not available yet — the unlock time has not passed."
-        );
+        setDecryptError(t("unlock.beaconNotYet"));
       } else {
-        setDecryptError(`Decryption failed: ${msg}`);
+        setDecryptError(t("unlock.decryptFailed", { msg }));
       }
     } finally {
       setDecrypting(false);
@@ -246,7 +244,7 @@ export default function UnlockPage() {
     setClaimError(null);
     try {
       if (!capsule.private_key || !capsule.public_key) {
-        throw new Error("Capsule is missing signing keys. Cannot claim attestation.");
+        throw new Error(t("unlock.missingKeys"));
       }
       const signature = await signHash(capsule.hash, capsule.private_key);
       const res = await api.claimPrediction({
@@ -257,7 +255,7 @@ export default function UnlockPage() {
       });
       setClaimResult({ url: res.attestation_url });
     } catch (err: any) {
-      setClaimError(err?.message ?? "Claim failed.");
+      setClaimError(err?.message ?? t("unlock.claimFailed"));
     } finally {
       setClaiming(false);
     }
@@ -274,7 +272,7 @@ export default function UnlockPage() {
       });
       setPublishResult(true);
     } catch (err: any) {
-      setPublishError(err?.message ?? "Publish failed.");
+      setPublishError(err?.message ?? t("unlock.publishFailed"));
     } finally {
       setPublishing(false);
     }
@@ -327,11 +325,14 @@ export default function UnlockPage() {
             yousaidthat.org
           </span>
         </Link>
-        <Link href="/verify">
-          <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
-            Verify a prediction
-          </span>
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/verify">
+            <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
+              {t("create.verifyLink")}
+            </span>
+          </Link>
+          <LanguageSwitcher />
+        </div>
       </nav>
 
       <main className="flex-1 flex flex-col items-center px-6 py-12 w-full max-w-xl mx-auto">
@@ -343,10 +344,10 @@ export default function UnlockPage() {
         >
           <div>
             <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1] mb-2">
-              Unlock
+              {t("unlock.kicker")}
             </p>
             <h1 className="text-3xl font-bold tracking-tight">
-              Open your capsule
+              {t("unlock.title")}
             </h1>
           </div>
 
@@ -365,10 +366,9 @@ export default function UnlockPage() {
             >
               <Upload className="w-9 h-9 text-[#CCC]" />
               <p className="text-sm text-[#666]">
-                Drop your <span className="font-mono">.capsule</span> or sealed{" "}
-                <span className="font-mono">.pdf</span> here
+                <Trans i18nKey="unlock.dropHere" components={{ m: <span className="font-mono" /> }} />
               </p>
-              <p className="text-xs text-[#BBB]">or click to browse</p>
+              <p className="text-xs text-[#BBB]">{t("verify.orBrowse")}</p>
             </div>
           )}
           <input
@@ -399,12 +399,12 @@ export default function UnlockPage() {
                 {/* Capsule metadata card */}
                 <div className="bg-white border border-[#E5E5E5] rounded-3xl p-5 space-y-3">
                   <p className="text-[10px] font-mono uppercase text-[#BBB]">
-                    Capsule loaded
+                    {t("unlock.capsuleLoaded")}
                   </p>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                        Mode
+                        {t("verify.mode")}
                       </p>
                       <p className="font-medium capitalize">
                         {capsule.mode.replace(/_/g, " ")}
@@ -412,7 +412,7 @@ export default function UnlockPage() {
                     </div>
                     <div>
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                        Unlocks
+                        {t("create.unlocksLabel")}
                       </p>
                       <p className="font-medium">
                         {isTlock && capsule.target_datetime
@@ -422,18 +422,18 @@ export default function UnlockPage() {
                             })
                           : capsule.target_year != null
                           ? String(capsule.target_year)
-                          : "No time gate"}
+                          : t("create.noGate")}
                       </p>
                     </div>
                     {isTlock && (
                       <div className="col-span-2">
                         <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                          Encryption
+                          {t("unlock.encryption")}
                         </p>
                         <div className="flex items-center gap-1.5">
                           <Lock className="w-3 h-3 text-[#6366F1]" />
                           <p className="text-xs font-mono text-[#6366F1]">
-                            drand IBE timelock · round #{capsule.drand_round?.toLocaleString()}
+                            {t("unlock.drandRoundLabel", { round: capsule.drand_round?.toLocaleString() })}
                           </p>
                         </div>
                       </div>
@@ -441,7 +441,7 @@ export default function UnlockPage() {
                     {capsule.keywords?.length > 0 && (
                       <div className="col-span-2">
                         <p className="text-[10px] font-mono text-[#BBB] uppercase mb-1">
-                          Keywords
+                          {t("verify.keywords")}
                         </p>
                         <div className="flex flex-wrap gap-1">
                           {capsule.keywords.map((k) => (
@@ -457,7 +457,7 @@ export default function UnlockPage() {
                     )}
                     <div className="col-span-2">
                       <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                        Hash preview
+                        {t("unlock.hashPreview")}
                       </p>
                       <p className="text-xs font-mono text-[#444]">
                         {capsule.hash.slice(0, 16)}…
@@ -468,7 +468,7 @@ export default function UnlockPage() {
                     onClick={() => { setCapsule(null); setDecrypted(null); }}
                     className="text-xs text-[#999] hover:text-[#666] transition-colors"
                   >
-                    Load different capsule
+                    {t("unlock.loadDifferent")}
                   </button>
                 </div>
 
@@ -490,21 +490,26 @@ export default function UnlockPage() {
                       />
                     </div>
                     <div>
-                      <p className="font-bold text-lg">Prediction locked</p>
+                      <p className="font-bold text-lg">{t("unlock.locked")}</p>
                       <p className="text-[#666] text-sm mt-1">
                         {isTlock ? (
-                          <>Sealed until <span className="font-semibold text-[#111]">{lockedUntilDisplay}</span></>
+                          <Trans
+                            i18nKey="unlock.sealedUntil"
+                            components={{ b: <span className="font-semibold text-[#111]" /> }}
+                            values={{ date: lockedUntilDisplay }}
+                          />
                         ) : (
-                          <>Returns in{" "}
-                          <span className="font-semibold text-[#111]">
-                            {yearsLeft} {yearsLeft === 1 ? "year" : "years"}
-                          </span>{" "}
-                          — {capsule.target_year}</>
+                          <Trans
+                            i18nKey="unlock.returnsIn"
+                            components={{ b: <span className="font-semibold text-[#111]" /> }}
+                            values={{ count: yearsLeft, year: capsule.target_year }}
+                            count={yearsLeft}
+                          />
                         )}
                       </p>
                       {isTlock && (
                         <p className="text-[11px] text-[#999] mt-2">
-                          The drand randomness needed to decrypt this capsule will only be published after that moment.
+                          {t("unlock.beaconNote")}
                         </p>
                       )}
                     </div>
@@ -520,7 +525,7 @@ export default function UnlockPage() {
                       </div>
                     </div>
                     <p className="text-xs text-[#999]">
-                      Come back on {lockedUntilDisplay} to unlock.
+                      {t("unlock.comeBack", { date: lockedUntilDisplay })}
                     </p>
                   </motion.div>
                 )}
@@ -535,7 +540,7 @@ export default function UnlockPage() {
                     <div className="flex items-center gap-2 p-4 rounded-2xl bg-green-50 border border-green-200">
                       <Unlock className="w-4 h-4 text-green-600" />
                       <p className="text-sm text-green-800 font-medium">
-                        Timelock expired — this document can now be decrypted
+                        {t("unlock.docUnlockable")}
                       </p>
                     </div>
 
@@ -555,18 +560,18 @@ export default function UnlockPage() {
                           {decrypting ? (
                             <>
                               <Loader2 className="w-4 h-4 animate-spin" />
-                              <span className="font-mono text-sm">{decryptStep || "Decrypting…"}</span>
+                              <span className="font-mono text-sm">{decryptStep || t("unlock.decrypting")}</span>
                             </>
                           ) : (
                             <>
                               <Unlock className="w-4 h-4" />
-                              Unlock PDF via drand
+                              {t("unlock.unlockPdf")}
                             </>
                           )}
                         </button>
                         {!decrypting && (
                           <p className="text-[11px] text-center text-[#999]">
-                            Requires an internet connection to fetch the drand beacon.
+                            {t("unlock.needsNetwork")}
                           </p>
                         )}
                       </>
@@ -590,15 +595,15 @@ export default function UnlockPage() {
                           <div>
                             <p className={`text-sm font-semibold ${hashMatch ? "text-green-800" : "text-red-800"}`}>
                               {capsule.pdf_encryption === "qpdf-aes256"
-                                ? (hashMatch ? "Unlocked ✓" : "Unlock failed ✗")
-                                : `Hash ${hashMatch ? "matches ✓" : "mismatch ✗"}`}
+                                ? (hashMatch ? t("unlock.unlockedOk") : t("unlock.unlockFailed"))
+                                : (hashMatch ? t("unlock.hashMatches") : t("unlock.hashMismatch"))}
                             </p>
                             <p className={`text-[11px] ${hashMatch ? "text-green-600" : "text-red-600"}`}>
                               {capsule.pdf_encryption === "qpdf-aes256"
-                                ? "Decrypted with the time-locked password. The registered SHA-256 is the original document's timestamped fingerprint."
+                                ? t("unlock.qpdfNote")
                                 : hashMatch
-                                ? "The decrypted PDF matches the registered hash."
-                                : "The hash does not match — the capsule may be corrupted."}
+                                ? t("unlock.pdfMatches")
+                                : t("unlock.pdfMismatch")}
                             </p>
                           </div>
                         </div>
@@ -608,11 +613,10 @@ export default function UnlockPage() {
                           <div className="bg-[#6366F1]/5 border border-[#6366F1]/20 rounded-2xl p-4 space-y-2">
                             <div className="flex items-center gap-2">
                               <Lock className="w-4 h-4 text-[#6366F1] shrink-0" />
-                              <p className="text-xs font-semibold text-[#6366F1]">PDF password recovered</p>
+                              <p className="text-xs font-semibold text-[#6366F1]">{t("unlock.pwRecovered")}</p>
                             </div>
                             <p className="text-[11px] text-[#666] leading-relaxed">
-                              Use this password to open your <span className="font-mono">-sealed.pdf</span> in any
-                              reader (Acrobat, Chrome…). Keep it private.
+                              <Trans i18nKey="unlock.pwNote" components={{ m: <span className="font-mono" /> }} />
                             </p>
                             <div className="flex items-center gap-2">
                               <code className="flex-1 text-xs font-mono break-all bg-white border border-[#E5E5E5] rounded-xl px-3 py-2">
@@ -630,7 +634,7 @@ export default function UnlockPage() {
                                 }}
                                 className="h-9 px-3 rounded-xl border border-[#E5E5E5] bg-white text-xs font-medium hover:bg-[#FAFAFA] transition-colors shrink-0"
                               >
-                                {pwCopied ? "Copied" : "Copy"}
+                                {pwCopied ? t("common.copied") : t("common.copy")}
                               </button>
                             </div>
                           </div>
@@ -656,7 +660,7 @@ export default function UnlockPage() {
                               className="w-full h-11 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] transition-colors"
                             >
                               <Download className="w-4 h-4" />
-                              Download PDF
+                              {t("unlock.downloadPdf")}
                             </a>
                           </div>
                         )}
@@ -666,10 +670,10 @@ export default function UnlockPage() {
                           <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 space-y-1">
                             <div className="flex items-center gap-2">
                               <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
-                              <p className="text-xs font-semibold text-indigo-800">Certificazione Temporale (RFC 3161)</p>
+                              <p className="text-xs font-semibold text-indigo-800">{t("unlock.tsaCert")}</p>
                             </div>
                             <p className="text-sm font-mono text-indigo-900 font-medium">
-                              Sigillato il:{" "}
+                              {t("unlock.sealedOn")}{" "}
                               {new Date(capsule.created_at).toLocaleString(undefined, {
                                 day: "numeric",
                                 month: "long",
@@ -696,7 +700,7 @@ export default function UnlockPage() {
                           {capsule.ots_proof && (
                             <span className="flex items-center gap-1.5 text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
                               <Clock className="w-3 h-3" />
-                              OTS Proof
+                              {t("unlock.otsProofBadge")}
                             </span>
                           )}
                           <span className="flex items-center gap-1.5 text-[10px] font-mono text-[#6366F1] bg-[#6366F1]/5 border border-[#6366F1]/20 px-2.5 py-1 rounded-full">
@@ -727,7 +731,7 @@ export default function UnlockPage() {
                             className="w-full h-11 rounded-full border border-[#6366F1]/30 bg-[#6366F1]/5 text-[#6366F1] text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#6366F1]/10 transition-colors"
                           >
                             <FileText className="w-4 h-4" />
-                            Download Certificate (PDF)
+                            {t("create.downloadCert")}
                           </button>
                         )}
                       </motion.div>
@@ -746,8 +750,8 @@ export default function UnlockPage() {
                       <Unlock className="w-4 h-4 text-green-600" />
                       <p className="text-sm text-green-800 font-medium">
                         {isTlock
-                          ? "Timelock expired — this prediction can now be decrypted"
-                          : `It's ${currentYear} — this prediction can be unlocked`}
+                          ? t("unlock.predUnlockableTlock")
+                          : t("unlock.predUnlockableYear", { year: currentYear })}
                       </p>
                     </div>
 
@@ -767,18 +771,18 @@ export default function UnlockPage() {
                           {decrypting ? (
                             <>
                               <Loader2 className="w-4 h-4 animate-spin" />
-                              <span className="font-mono text-sm">{decryptStep || "Decrypting…"}</span>
+                              <span className="font-mono text-sm">{decryptStep || t("unlock.decrypting")}</span>
                             </>
                           ) : (
                             <>
                               <Eye className="w-4 h-4" />
-                              {isTlock ? "Decrypt via drand" : "Decrypt Content"}
+                              {isTlock ? t("unlock.decryptDrand") : t("unlock.decryptContent")}
                             </>
                           )}
                         </button>
                         {isTlock && !decrypting && (
                           <p className="text-[11px] text-center text-[#999]">
-                            Requires an internet connection to fetch the drand beacon.
+                            {t("unlock.needsNetwork")}
                           </p>
                         )}
                       </>
@@ -791,7 +795,7 @@ export default function UnlockPage() {
                         {/* Decrypted content */}
                         <div className="bg-white border border-[#E5E5E5] rounded-3xl p-6">
                           <p className="text-[10px] font-mono uppercase text-[#BBB] mb-3">
-                            Your prediction
+                            {t("create.yourPrediction")}
                           </p>
                           <p className="text-base leading-relaxed text-[#111]">
                             {decrypted}
@@ -817,7 +821,7 @@ export default function UnlockPage() {
                                 hashMatch ? "text-green-800" : "text-red-800"
                               }`}
                             >
-                              Hash {hashMatch ? "matches ✓" : "mismatch ✗"}
+                              {hashMatch ? t("unlock.hashMatches") : t("unlock.hashMismatch")}
                             </p>
                             <p
                               className={`text-[11px] ${
@@ -825,8 +829,8 @@ export default function UnlockPage() {
                               }`}
                             >
                               {hashMatch
-                                ? "The decrypted text matches the registered hash."
-                                : "The hash does not match — capsule may be corrupted."}
+                                ? t("unlock.textMatches")
+                                : t("unlock.textMismatch")}
                             </p>
                           </div>
                         </div>
@@ -836,10 +840,10 @@ export default function UnlockPage() {
                           <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 space-y-1">
                             <div className="flex items-center gap-2">
                               <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
-                              <p className="text-xs font-semibold text-indigo-800">Certificazione Temporale (RFC 3161)</p>
+                              <p className="text-xs font-semibold text-indigo-800">{t("unlock.tsaCert")}</p>
                             </div>
                             <p className="text-sm font-mono text-indigo-900 font-medium">
-                              Detto il:{" "}
+                              {t("unlock.saidOn")}{" "}
                               {new Date(capsule.created_at).toLocaleString(undefined, {
                                 day: "numeric",
                                 month: "long",
@@ -866,7 +870,7 @@ export default function UnlockPage() {
                           {capsule.ots_proof && (
                             <span className="flex items-center gap-1.5 text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
                               <Clock className="w-3 h-3" />
-                              OTS Proof
+                              {t("unlock.otsProofBadge")}
                             </span>
                           )}
                           {isTlock && (
@@ -898,7 +902,7 @@ export default function UnlockPage() {
                             className="w-full h-11 rounded-full border border-[#6366F1]/30 bg-[#6366F1]/5 text-[#6366F1] text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#6366F1]/10 transition-colors"
                           >
                             <FileText className="w-4 h-4" />
-                            Download Certificate (PDF)
+                            {t("create.downloadCert")}
                           </button>
                         )}
 
@@ -913,12 +917,11 @@ export default function UnlockPage() {
                             <div className="flex items-center gap-2">
                               <Globe className="w-4 h-4 text-[#6366F1]" />
                               <p className="font-semibold text-sm">
-                                Publish to community (optional)
+                                {t("unlock.publishTitle")}
                               </p>
                             </div>
                             <p className="text-xs text-[#666] leading-relaxed">
-                              Make this prediction public on the community feed.
-                              Your original text and timestamp proof will be visible to everyone.
+                              {t("unlock.publishDesc")}
                             </p>
 
                             {publishResult === null && (
@@ -932,7 +935,7 @@ export default function UnlockPage() {
                                   }`}
                                 >
                                   <span className={`text-sm font-medium ${publishPublic ? "text-[#6366F1]" : "text-[#444]"}`}>
-                                    Make prediction public
+                                    {t("create.makePublic")}
                                   </span>
                                   <div
                                     className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${
@@ -966,7 +969,7 @@ export default function UnlockPage() {
                                       ) : (
                                         <>
                                           <Globe className="w-4 h-4" />
-                                          Publish now
+                                          {t("unlock.publishNow")}
                                         </>
                                       )}
                                     </button>
@@ -978,7 +981,7 @@ export default function UnlockPage() {
                             {publishResult === true && (
                               <div className="flex items-center gap-2 text-green-700 p-3 rounded-xl bg-green-50 border border-green-200">
                                 <CheckCircle2 className="w-4 h-4" />
-                                <p className="text-sm font-medium">Published to community feed</p>
+                                <p className="text-sm font-medium">{t("unlock.published")}</p>
                               </div>
                             )}
                           </motion.div>
@@ -998,13 +1001,13 @@ export default function UnlockPage() {
                     <div className="flex items-center gap-2 p-4 rounded-2xl bg-green-50 border border-green-200">
                       <Unlock className="w-4 h-4 text-green-600" />
                       <p className="text-sm text-green-800 font-medium">
-                        It's {currentYear} — reveal your original text
+                        {t("unlock.poeReveal", { year: currentYear })}
                       </p>
                     </div>
 
                     <div>
                       <label className="text-xs font-mono uppercase text-[#999] mb-2 block">
-                        Enter your original prediction
+                        {t("unlock.enterOriginal")}
                       </label>
                       <textarea
                         value={flickerInput}
@@ -1013,7 +1016,7 @@ export default function UnlockPage() {
                           setFlickerResult(null);
                         }}
                         rows={4}
-                        placeholder="Type your original prediction text…"
+                        placeholder={t("unlock.typeOriginal")}
                         className="w-full rounded-2xl border border-[#E5E5E5] bg-white p-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] resize-none transition-all"
                       />
                     </div>
@@ -1023,7 +1026,7 @@ export default function UnlockPage() {
                       disabled={!flickerInput.trim()}
                       className="w-full h-11 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] disabled:opacity-40 transition-colors"
                     >
-                      Verify text
+                      {t("unlock.verifyText")}
                     </button>
 
                     {flickerResult !== null && (
@@ -1050,8 +1053,8 @@ export default function UnlockPage() {
                             }`}
                           >
                             {flickerResult
-                              ? "Verified ✓ — this is your original prediction"
-                              : "Hash mismatch — this is not the original text"}
+                              ? t("unlock.verifiedOriginal")
+                              : t("unlock.notOriginal")}
                           </p>
                         </div>
 
@@ -1076,7 +1079,7 @@ export default function UnlockPage() {
                             className="w-full h-11 rounded-full border border-[#6366F1]/30 bg-[#6366F1]/5 text-[#6366F1] text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#6366F1]/10 transition-colors"
                           >
                             <FileText className="w-4 h-4" />
-                            Download Certificate (PDF)
+                            {t("create.downloadCert")}
                           </button>
                         )}
                       </motion.div>
@@ -1095,12 +1098,11 @@ export default function UnlockPage() {
                     <div className="flex items-center gap-2">
                       <User className="w-4 h-4 text-[#6366F1]" />
                       <p className="font-semibold text-sm">
-                        Claim authorship (optional)
+                        {t("unlock.claimTitle")}
                       </p>
                     </div>
                     <p className="text-xs text-[#666] leading-relaxed">
-                      Publish your name linked to this prediction. Your
-                      signature proves ownership cryptographically.
+                      {t("unlock.claimDesc")}
                     </p>
 
                     {!claimResult ? (
@@ -1108,7 +1110,7 @@ export default function UnlockPage() {
                         <input
                           value={claimName}
                           onChange={(e) => setClaimName(e.target.value)}
-                          placeholder="Your name or handle"
+                          placeholder={t("unlock.namePlaceholder")}
                           maxLength={100}
                           className="w-full h-11 rounded-full border border-[#E5E5E5] bg-[#FAFAFA] px-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
                         />
@@ -1123,7 +1125,7 @@ export default function UnlockPage() {
                           {claiming ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            "Sign & claim"
+                            t("unlock.signClaim")
                           )}
                         </button>
                       </>
@@ -1131,7 +1133,7 @@ export default function UnlockPage() {
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 text-green-700">
                           <CheckCircle2 className="w-4 h-4" />
-                          <p className="text-sm font-medium">Attestation created</p>
+                          <p className="text-sm font-medium">{t("unlock.attCreated")}</p>
                         </div>
                         <a
                           href={claimResult.url}
@@ -1151,7 +1153,6 @@ export default function UnlockPage() {
           </AnimatePresence>
         </motion.div>
       </main>
-      <Footer />
     </div>
   );
 }

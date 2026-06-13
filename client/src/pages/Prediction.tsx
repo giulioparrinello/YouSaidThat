@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Footer } from "@/components/Footer";
 import { motion } from "framer-motion";
 import {
   CheckCircle2,
@@ -384,7 +383,6 @@ export default function Prediction() {
           </motion.div>
         )}
       </main>
-      <Footer />
     </div>
   );
 }

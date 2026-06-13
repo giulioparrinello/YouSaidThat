@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { Footer } from "@/components/Footer";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -57,7 +56,6 @@ export default function ConfirmEmail() {
           </>
         )}
       </div>
-      <Footer />
     </div>
   );
 }

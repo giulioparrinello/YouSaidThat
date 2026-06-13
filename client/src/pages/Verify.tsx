@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { Footer } from "@/components/Footer";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -422,7 +421,6 @@ export default function Verify() {
           </AnimatePresence>
         </motion.div>
       </main>
-      <Footer />
     </div>
   );
 }

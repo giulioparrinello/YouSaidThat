@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Footer } from "@/components/Footer";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Lock,
@@ -1208,7 +1207,6 @@ export default function Create() {
           )}
         </motion.div>
       </main>
-      <Footer />
     </div>
   );
 }
