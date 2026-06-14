@@ -15,7 +15,9 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useTranslation } from "react-i18next";
 import { api, type PublicPrediction } from "@/lib/api";
+import { VerifiedAuthor } from "@/components/VerifiedBadge";
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
@@ -26,6 +28,7 @@ function PredictionCard({
   prediction: PublicPrediction;
   index: number;
 }) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-60px" });
 
@@ -71,9 +74,18 @@ function PredictionCard({
           </div>
           <div>
             <p className="text-xs font-semibold text-[#111]">
-              {isSealed ? "Sealed Prediction" : "Proof of Existence"}
+              {isSealed ? t("community.sealedPrediction") : t("community.proofOfExistence")}
             </p>
             <p className="text-[10px] font-mono text-[#999]">{dateLabel}</p>
+            {prediction.author_name && (
+              <p className="flex items-center gap-1 text-[10px] font-mono text-[#6366F1] truncate mt-0.5">
+                {prediction.verified ? (
+                  <VerifiedAuthor name={prediction.author_name} />
+                ) : (
+                  prediction.author_name
+                )}
+              </p>
+            )}
           </div>
         </div>
 
@@ -86,7 +98,7 @@ function PredictionCard({
       {/* Content preview or hash preview */}
       {prediction.content ? (
         <div className="bg-[#FAFAFA] border border-[#F0F0F0] rounded-xl px-3 py-2.5">
-          <p className="text-[9px] font-mono text-[#BBB] uppercase mb-1">Prediction</p>
+          <p className="text-[9px] font-mono text-[#BBB] uppercase mb-1">{t("community.predictionLabel")}</p>
           <p className="text-[12px] text-[#333] leading-relaxed">
             {prediction.content.length > 150
               ? prediction.content.slice(0, 150) + "…"
@@ -122,17 +134,17 @@ function PredictionCard({
         {isConfirmed ? (
           <span className="flex items-center gap-1.5 text-[9px] font-mono text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">
             <CheckCircle2 className="w-2.5 h-2.5" />
-            Bitcoin anchored
+            {t("community.bitcoinAnchored")}
           </span>
         ) : prediction.ots_status === "failed" ? (
           <span className="flex items-center gap-1.5 text-[9px] font-mono text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
             <XCircle className="w-2.5 h-2.5" />
-            OTS failed
+            {t("community.otsFailed")}
           </span>
         ) : (
           <span className="flex items-center gap-1.5 text-[9px] font-mono text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
             <Clock className="w-2.5 h-2.5 animate-pulse" />
-            Pending anchor
+            {t("community.pendingAnchor")}
           </span>
         )}
         {prediction.arweave_tx_id && (
@@ -183,6 +195,7 @@ const YEAR_OPTIONS = [0, ...Array.from({ length: 10 }, (_, i) => CURRENT_YEAR + 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Community() {
+  const { t } = useTranslation();
   const [predictions, setPredictions] = useState<PublicPrediction[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -213,7 +226,7 @@ export default function Community() {
         setTotal(res.total);
         setHasMore(pageNum * LIMIT < res.total);
       } catch (err: any) {
-        setError(err?.message ?? "Failed to load predictions.");
+        setError(err?.message ?? t("community.loadFailed"));
       } finally {
         setLoading(false);
       }
@@ -271,12 +284,12 @@ export default function Community() {
         <div className="flex items-center gap-4">
           <Link href="/verify">
             <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
-              Verify
+              {t("common.nav.verify")}
             </span>
           </Link>
           <Link href="/create">
             <span className="text-xs bg-[#111] text-white px-3 py-1.5 rounded-full hover:bg-[#333] transition-colors cursor-pointer">
-              New prediction
+              {t("community.newPrediction")}
             </span>
           </Link>
         </div>
@@ -293,19 +306,18 @@ export default function Community() {
           <div className="flex items-center gap-2 mb-3">
             <Users className="w-4 h-4 text-[#6366F1]" />
             <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1]">
-              Community Vault
+              {t("community.kicker")}
             </p>
           </div>
           <h1 className="text-4xl font-bold tracking-tight mb-3">
-            Public Predictions
+            {t("community.title")}
           </h1>
           <p className="text-[#666] text-base max-w-xl leading-relaxed">
-            Every entry here is cryptographically timestamped and anchored to the Bitcoin
-            blockchain. Content is never stored — only hashes and metadata.
+            {t("community.subtitle")}
           </p>
           {total > 0 && (
             <p className="text-[11px] font-mono text-[#999] mt-2">
-              {total.toLocaleString()} public prediction{total !== 1 ? "s" : ""} registered
+              {t("community.registered", { count: total })}
             </p>
           )}
         </motion.div>
@@ -325,7 +337,7 @@ export default function Community() {
                 value={keywordInput}
                 onChange={(e) => setKeywordInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && applyKeyword()}
-                placeholder="Search by keyword…"
+                placeholder={t("community.searchPlaceholder")}
                 className="w-full h-10 pl-9 pr-4 rounded-full border border-[#E5E5E5] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
               />
             </div>
@@ -333,7 +345,7 @@ export default function Community() {
               onClick={applyKeyword}
               className="h-10 px-4 rounded-full bg-[#111] text-white text-xs font-medium hover:bg-[#333] transition-colors"
             >
-              Search
+              {t("community.search")}
             </button>
           </div>
 
@@ -345,7 +357,7 @@ export default function Community() {
               onChange={(e) => setSelectedYear(Number(e.target.value))}
               className="h-10 px-3 rounded-full border border-[#E5E5E5] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 transition-all text-[#444]"
             >
-              <option value={0}>All years</option>
+              <option value={0}>{t("community.allYears")}</option>
               {YEAR_OPTIONS.filter((y) => y > 0).map((y) => (
                 <option key={y} value={y}>
                   {y}
@@ -361,7 +373,7 @@ export default function Community() {
               className="flex items-center gap-1.5 h-10 px-4 rounded-full border border-[#E5E5E5] text-xs text-[#666] hover:bg-[#F5F5F5] transition-colors"
             >
               <X className="w-3.5 h-3.5" />
-              Clear
+              {t("community.clear")}
             </button>
           )}
         </motion.div>
@@ -371,7 +383,7 @@ export default function Community() {
           <div className="flex flex-wrap gap-2 mb-6">
             {keyword && (
               <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#6366F1]/10 border border-[#6366F1]/20 text-[11px] font-mono text-[#6366F1]">
-                keyword: {keyword}
+                {t("community.keywordChip", { keyword })}
                 <button onClick={() => { setKeyword(""); setKeywordInput(""); }}>
                   <X className="w-3 h-3" />
                 </button>
@@ -379,7 +391,7 @@ export default function Community() {
             )}
             {selectedYear > 0 && (
               <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#6366F1]/10 border border-[#6366F1]/20 text-[11px] font-mono text-[#6366F1]">
-                year: {selectedYear}
+                {t("community.yearChip", { year: selectedYear })}
                 <button onClick={() => setSelectedYear(0)}>
                   <X className="w-3 h-3" />
                 </button>
@@ -405,15 +417,13 @@ export default function Community() {
             <div className="w-16 h-16 rounded-2xl bg-[#F5F5F5] border border-[#E5E5E5] flex items-center justify-center">
               <Bitcoin className="w-6 h-6 text-[#CCC]" />
             </div>
-            <p className="text-[#666] font-medium">No public predictions yet</p>
+            <p className="text-[#666] font-medium">{t("community.emptyTitle")}</p>
             <p className="text-sm text-[#999]">
-              {hasFilters
-                ? "Try different filters, or clear them to see all."
-                : "Be the first to add one."}
+              {hasFilters ? t("community.emptyFiltered") : t("community.emptyDefault")}
             </p>
             <Link href="/create">
               <button className="mt-2 h-10 px-5 rounded-full bg-[#111] text-white text-sm font-medium flex items-center gap-2 hover:bg-[#333] transition-colors">
-                Add a prediction
+                {t("community.addPrediction")}
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </Link>
@@ -440,7 +450,7 @@ export default function Community() {
             animate={{ opacity: 1 }}
             className="text-center text-xs text-[#CCC] font-mono mt-4 pb-8"
           >
-            — {predictions.length} prediction{predictions.length !== 1 ? "s" : ""} shown —
+            — {t("community.shown", { count: predictions.length })} —
           </motion.p>
         )}
 
@@ -452,15 +462,14 @@ export default function Community() {
             transition={{ delay: 0.3 }}
             className="mt-12 p-8 rounded-3xl bg-[#111] text-white text-center space-y-4"
           >
-            <p className="text-sm font-mono text-[#999] uppercase tracking-widest">Add yours</p>
-            <p className="text-2xl font-bold">Your prediction belongs here.</p>
+            <p className="text-sm font-mono text-[#999] uppercase tracking-widest">{t("community.ctaKicker")}</p>
+            <p className="text-2xl font-bold">{t("community.ctaTitle")}</p>
             <p className="text-[#888] text-sm max-w-sm mx-auto">
-              Register a public proof of existence and join the vault.
-              Anchored to Bitcoin. Immutable. Yours.
+              {t("community.ctaDesc")}
             </p>
             <Link href="/create">
               <button className="mt-2 h-11 px-8 rounded-full bg-white text-[#111] font-semibold text-sm hover:bg-[#E5E5E5] transition-colors inline-flex items-center gap-2">
-                Create a prediction
+                {t("community.ctaButton")}
                 <ArrowRight className="w-4 h-4" />
               </button>
             </Link>

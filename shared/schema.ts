@@ -17,6 +17,10 @@ export const predictions = pgTable("predictions", {
   bitcoin_block: integer("bitcoin_block"),
   timestamp_utc: timestamp("timestamp_utc", { withTimezone: true }).defaultNow(),
   is_public: boolean("is_public").notNull().default(false),
+  // Verified/official post. Server-only: set true exclusively when the register
+  // request carries a valid ADMIN_SECRET. Never derived from author_name or any
+  // client-supplied field, so it cannot be spoofed.
+  verified: boolean("verified").notNull().default(false),
   created_at: timestamp("created_at", { withTimezone: true }).defaultNow(),
   // Proof of existence content fields
   content: text("content"),                         // cleartext for proof_of_existence cleartext sub-mode

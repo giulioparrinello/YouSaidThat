@@ -20,8 +20,12 @@ import {
   ThumbsDown,
   User,
 } from "lucide-react";
+import { useTranslation, Trans } from "react-i18next";
+import i18next from "i18next";
 import TextType from "@/components/TextType";
 import Aurora from "@/components/Aurora";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { VerifiedAuthor } from "@/components/VerifiedBadge";
 import { api, type PublicPrediction } from "@/lib/api";
 
 // ─── Voter fingerprint ────────────────────────────────────────────────────────
@@ -40,7 +44,7 @@ function formatDateDisplay(p: PublicPrediction): string {
     return new Date(p.target_datetime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   }
   if (p.target_year) return String(p.target_year);
-  return "nessuna data";
+  return i18next.t("home.noDate");
 }
 
 function formatTsaTimestamp(ts: string): string {
@@ -68,17 +72,18 @@ const MARQUEE_ITEMS = [
 ];
 
 const STATIC_STATS = [
-  { label: "max time-lock", value: "2040", suffix: "" },
-  { label: "client-side", value: "100%", suffix: "" },
-  { label: "keys held by us", value: "0", suffix: "" },
+  { labelKey: "home.stats.maxTimelock", value: "2040", suffix: "" },
+  { labelKey: "home.stats.clientSide", value: "100%", suffix: "" },
+  { labelKey: "home.stats.keysHeld", value: "0", suffix: "" },
 ];
 
+// title/desc live in the i18n dictionaries under home.protocol.stepN;
+// crypto labels and hex fragments are terminal-style decoration, kept English.
 const HOW_IT_WORKS = [
   {
     step: "01",
     icon: Lock,
-    title: "Choose your mode",
-    desc: "Proof of Existence (cleartext or encrypted) anchors content permanently to Arweave. Sealed Prediction encrypts locally — the server never sees your plaintext.",
+    key: "step1",
     cryptoLabel: "MODE SELECT",
     cryptoStatus: "privacy-first",
     hexFragment: "mode...set",
@@ -87,8 +92,7 @@ const HOW_IT_WORKS = [
   {
     step: "02",
     icon: Hash,
-    title: "Hash & anchor to Arweave",
-    desc: "SHA-256 produces a 64-character fingerprint. For public Proof of Existence, the full text is also uploaded to Arweave — permanent, censorship-resistant storage.",
+    key: "step2",
     cryptoLabel: "SHA-256 + Arweave",
     cryptoStatus: "stored forever",
     hexFragment: "a3f9...e12b",
@@ -97,8 +101,7 @@ const HOW_IT_WORKS = [
   {
     step: "03",
     icon: ShieldCheck,
-    title: "Anchor to Bitcoin",
-    desc: "Your hash is submitted to the Bitcoin blockchain via OpenTimestamps and a RFC 3161 TSA token is issued — immutable, decentralized proof of existence.",
+    key: "step3",
     cryptoLabel: "OTS + RFC 3161",
     cryptoStatus: "BTC pending…",
     hexFragment: "9b1e...c3a0",
@@ -107,8 +110,7 @@ const HOW_IT_WORKS = [
   {
     step: "04",
     icon: Fingerprint,
-    title: "Claim authorship",
-    desc: "At your target year, upload your capsule file. Your RSA-PSS signature proves ownership without revealing anything more than you choose.",
+    key: "step4",
     cryptoLabel: "RSA-PSS 2048",
     cryptoStatus: "Sig valid ✓",
     hexFragment: "d1a5...7f3e",
@@ -118,6 +120,7 @@ const HOW_IT_WORKS = [
 
 // --- Waitlist Form ---
 function WaitlistForm() {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -136,12 +139,12 @@ function WaitlistForm() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.message ?? "Something went wrong. Try again.");
+        setError(body.message ?? t("common.error"));
       } else {
         setSubmitted(true);
       }
     } catch {
-      setError("Network error. Please try again.");
+      setError(t("common.networkError"));
     } finally {
       setLoading(false);
     }
@@ -158,13 +161,13 @@ function WaitlistForm() {
       <div className="bg-white border border-[#E5E5E5] rounded-3xl p-8 shadow-sm text-center flex flex-col items-center gap-5">
         <div className="space-y-1.5">
           <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1]">
-            Early Access
+            {t("home.waitlist.kicker")}
           </p>
           <h3 className="text-xl font-bold tracking-tight text-[#111111]">
-            Be first when we launch
+            {t("home.waitlist.title")}
           </h3>
           <p className="text-sm text-[#666666]">
-            No spam. Just one email when it's live.
+            {t("home.waitlist.subtitle")}
           </p>
         </div>
         <AnimatePresence mode="wait">
@@ -176,7 +179,7 @@ function WaitlistForm() {
               className="flex items-center gap-2 text-green-600 font-mono text-sm"
             >
               <CheckCircle2 className="w-4 h-4" />
-              You're on the list. We'll be in touch.
+              {t("home.waitlist.success")}
             </motion.div>
           ) : (
             <motion.form
@@ -189,7 +192,7 @@ function WaitlistForm() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
+                placeholder={t("home.waitlist.emailPlaceholder")}
                 required
                 className="flex-1 h-11 rounded-full border border-[#E5E5E5] bg-[#FAFAFA] px-4 text-sm text-[#111111] placeholder:text-[#BBBBBB] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
               />
@@ -206,7 +209,7 @@ function WaitlistForm() {
                   />
                 ) : (
                   <>
-                    Join <ArrowRight className="w-3.5 h-3.5" />
+                    {t("home.waitlist.join")} <ArrowRight className="w-3.5 h-3.5" />
                   </>
                 )}
               </button>
@@ -224,6 +227,7 @@ function WaitlistForm() {
 
 // ─── Prediction card with like/dislike ───────────────────────────────────────
 function PredictionCard({ p, fingerprint }: { p: PublicPrediction; fingerprint: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [optimistic, setOptimistic] = useState<{
     likes: number;
@@ -279,7 +283,7 @@ function PredictionCard({ p, fingerprint }: { p: PublicPrediction; fingerprint: 
           {p.author_name ? (
             <span className="flex items-center gap-1 text-[10px] font-mono text-[#6366F1] truncate">
               <User className="w-2.5 h-2.5 shrink-0" />
-              {p.author_name}
+              {p.verified ? <VerifiedAuthor name={p.author_name} /> : p.author_name}
             </span>
           ) : (
             <span className="text-[10px] font-mono text-[#CCC]">
@@ -294,7 +298,7 @@ function PredictionCard({ p, fingerprint }: { p: PublicPrediction; fingerprint: 
               : "text-amber-600 bg-amber-50 border-amber-100"
           }`}
         >
-          {p.ots_status === "confirmed" ? "BTC ✓" : "pending"}
+          {p.ots_status === "confirmed" ? "BTC ✓" : t("common.status.pending")}
         </span>
       </div>
 
@@ -315,7 +319,7 @@ function PredictionCard({ p, fingerprint }: { p: PublicPrediction; fingerprint: 
 
       {/* Date display */}
       <p className="text-[10px] font-mono text-[#BBB]">
-        {p.content ? `riguardo ${dateDisplay}` : ""}
+        {p.content ? t("home.about", { date: dateDisplay }) : ""}
       </p>
 
       {/* Keywords */}
@@ -337,7 +341,7 @@ function PredictionCard({ p, fingerprint }: { p: PublicPrediction; fingerprint: 
         <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-100">
           <ShieldCheck className="w-3 h-3 text-indigo-500 shrink-0" />
           <span className="text-[9px] font-mono text-indigo-600">
-            Retroattività Garantita · TSA: {formatTsaTimestamp(p.timestamp_utc)}
+            {t("home.retro", { ts: formatTsaTimestamp(p.timestamp_utc) })}
           </span>
         </div>
       )}
@@ -377,6 +381,7 @@ function PredictionCard({ p, fingerprint }: { p: PublicPrediction; fingerprint: 
 
 // ─── Public Predictions Feed ──────────────────────────────────────────────────
 function PublicFeed() {
+  const { t } = useTranslation();
   const fingerprint = getVoterFingerprint();
   const { data, isLoading } = useQuery({
     queryKey: ["public-predictions"],
@@ -403,17 +408,17 @@ function PublicFeed() {
     <div className="w-full max-w-5xl space-y-5">
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1]">
-          Public predictions
+          {t("home.feed.title")}
         </p>
         <div className="flex items-center gap-4">
           <Link href="/community">
             <span className="text-xs text-[#6366F1] hover:text-[#4F46E5] transition-colors cursor-pointer flex items-center gap-1 font-medium">
-              View all <ChevronRight className="w-3 h-3" />
+              {t("home.feed.viewAll")} <ChevronRight className="w-3 h-3" />
             </span>
           </Link>
           <Link href="/verify">
             <span className="text-xs text-[#999] hover:text-[#111] transition-colors cursor-pointer flex items-center gap-1">
-              <Search className="w-3 h-3" /> Verify a hash
+              <Search className="w-3 h-3" /> {t("home.feed.verifyHash")}
             </span>
           </Link>
         </div>
@@ -428,6 +433,7 @@ function PublicFeed() {
 }
 
 export default function Home() {
+  const { t } = useTranslation();
   const { data: statsData } = useQuery({
     queryKey: ["stats"],
     queryFn: () => api.getStats(),
@@ -437,7 +443,7 @@ export default function Home() {
   const STATS = [
     {
       value: statsData ? statsData.total.toLocaleString("en-US") : "—",
-      label: "predictions sealed",
+      labelKey: "home.stats.sealed",
       suffix: statsData ? "+" : "",
     },
     ...STATIC_STATS,
@@ -495,22 +501,22 @@ export default function Home() {
           >
             <Link href="/verify">
               <span className="text-sm text-[#555] hover:text-[#111] font-medium transition-colors cursor-pointer">
-                Verify
+                {t("common.nav.verify")}
               </span>
             </Link>
             <Link href="/seal">
               <span className="text-sm text-[#555] hover:text-[#111] font-medium transition-colors cursor-pointer">
-                Seal PDF
+                {t("common.nav.sealPdf")}
               </span>
             </Link>
             <Link href="/unlock">
               <span className="text-sm text-[#555] hover:text-[#111] font-medium transition-colors cursor-pointer">
-                Unlock
+                {t("common.nav.unlock")}
               </span>
             </Link>
             <Link href="/create">
               <button className="h-8 px-4 rounded-full bg-[#111111] text-white text-xs font-semibold hover:bg-[#222] transition-colors">
-                Create
+                {t("common.nav.create")}
               </button>
             </Link>
           </motion.div>
@@ -526,17 +532,18 @@ export default function Home() {
             transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
             className="text-6xl md:text-7xl lg:text-[88px] font-bold tracking-tighter leading-[1.05] text-[#111111]"
           >
-            Your Predictions.<br />
-            Your Proof.
+            {t("home.hero.title1")}<br />
+            {t("home.hero.title2")}
           </motion.h1>
 
           {/* TextType subtitle */}
           <div className="flex items-center justify-center min-h-[48px] w-full max-w-2xl">
             <TextType
+              key={t("home.hero.type1")}
               text={[
-                "Record your ideas about the future.",
-                "Seal them in time.",
-                "Reveal them when the year arrives.",
+                t("home.hero.type1"),
+                t("home.hero.type2"),
+                t("home.hero.type3"),
               ]}
               typingSpeed={75}
               pauseDuration={1500}
@@ -559,13 +566,13 @@ export default function Home() {
           >
             <Link href="/create">
               <button className="flex items-center gap-2 h-12 px-8 rounded-full bg-[#111111] text-white text-sm font-semibold hover:bg-[#222] transition-colors group">
-                Create a Prediction
+                {t("home.hero.ctaCreate")}
                 <ChevronRight className="w-4 h-4 opacity-60 group-hover:translate-x-0.5 transition-transform" />
               </button>
             </Link>
             <Link href="/unlock">
               <button className="flex items-center h-12 px-8 rounded-full bg-white/70 backdrop-blur-sm border border-[#111111]/10 text-[#111111] text-sm font-semibold hover:bg-white transition-colors">
-                Unlock capsule
+                {t("home.hero.ctaUnlock")}
               </button>
             </Link>
           </motion.div>
@@ -595,7 +602,7 @@ export default function Home() {
           className="mt-20 w-full max-w-2xl grid grid-cols-2 md:grid-cols-4 gap-4"
         >
           {STATS.map((stat, i) => {
-            const isSealed = stat.label === "predictions sealed";
+            const isSealed = stat.labelKey === "home.stats.sealed";
             const content = (
               <>
                 <span className="text-2xl font-bold tracking-tight text-[#111111]">
@@ -603,7 +610,7 @@ export default function Home() {
                   <span className="text-[#6366F1]">{stat.suffix}</span>
                 </span>
                 <span className="text-[10px] font-mono text-[#999] uppercase tracking-widest mt-1">
-                  {stat.label}
+                  {t(stat.labelKey)}
                 </span>
               </>
             );
@@ -638,10 +645,10 @@ export default function Home() {
             className="text-center mb-10"
           >
             <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1] mb-3">
-              Two ways to prove it
+              {t("home.modes.kicker")}
             </p>
             <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-              Choose your mode
+              {t("home.modes.title")}
             </h2>
           </motion.div>
 
@@ -659,26 +666,23 @@ export default function Home() {
                   <Eye className="w-5 h-5 text-[#111]" strokeWidth={1.5} />
                 </div>
                 <span className="text-[9px] font-mono uppercase tracking-widest text-[#999] bg-[#F5F5F5] border border-[#E5E5E5] px-2 py-1 rounded-full">
-                  Public-ready
+                  {t("home.modes.poe.badge")}
                 </span>
               </div>
               <div>
                 <h3 className="text-xl font-bold tracking-tight mb-2">
-                  Proof of Existence
+                  {t("home.modes.poe.title")}
                 </h3>
                 <p className="text-sm text-[#666] leading-relaxed">
-                  Prove that a document, idea, or statement existed at a specific
-                  point in time. Choose <strong>Cleartext</strong> to store the content
-                  openly on Arweave — verifiable by anyone, forever — or <strong>Encrypted </strong>
-                  to keep the content private with the key only in your PDF.
+                  <Trans i18nKey="home.modes.poe.desc" components={{ b: <strong /> }} />
                 </p>
               </div>
               <ul className="space-y-2 mt-auto">
                 {[
-                  "SHA-256 hash anchored to Bitcoin",
-                  "RFC 3161 TSA timestamp",
-                  "Permanent storage on Arweave",
-                  "Cleartext or encrypted sub-mode",
+                  t("home.modes.poe.f1"),
+                  t("home.modes.poe.f2"),
+                  t("home.modes.poe.f3"),
+                  t("home.modes.poe.f4"),
                 ].map((f) => (
                   <li key={f} className="flex items-center gap-2 text-[11px] text-[#555]">
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#6366F1] shrink-0" />
@@ -688,7 +692,7 @@ export default function Home() {
               </ul>
               <Link href="/create">
                 <button className="w-full h-11 rounded-full border border-[#E5E5E5] text-sm font-medium hover:bg-[#F5F5F5] transition-colors flex items-center justify-center gap-2">
-                  Create proof <ChevronRight className="w-4 h-4" />
+                  {t("home.modes.poe.cta")} <ChevronRight className="w-4 h-4" />
                 </button>
               </Link>
             </motion.div>
@@ -706,19 +710,24 @@ export default function Home() {
                   <Lock className="w-5 h-5 text-white" strokeWidth={1.5} />
                 </div>
                 <span className="text-[9px] font-mono uppercase tracking-widest text-white/50 bg-white/10 border border-white/10 px-2 py-1 rounded-full">
-                  Zero-knowledge
+                  {t("home.modes.sealed.badge")}
                 </span>
               </div>
               <div>
                 <h3 className="text-xl font-bold tracking-tight mb-2">
-                  Sealed Prediction
+                  {t("home.modes.sealed.title")}
                 </h3>
                 <p className="text-sm text-white/60 leading-relaxed">
-                Write a prediction, seal it with drand IBE timelock. The decryption key doesn’t exist yet — it is mathematically impossible to open it before the chosen date. The server never sees your text.
+                  {t("home.modes.sealed.desc")}
                 </p>
               </div>
               <ul className="space-y-2 mt-auto">
-                {["drand IBE timelock — key doesn't exist yet", "RSA-PSS keypair for attestation", "Bitcoin + TSA timestamp", ".capsule file — your only key"].map((f) => (
+                {[
+                  t("home.modes.sealed.f1"),
+                  t("home.modes.sealed.f2"),
+                  t("home.modes.sealed.f3"),
+                  t("home.modes.sealed.f4"),
+                ].map((f) => (
                   <li key={f} className="flex items-center gap-2 text-[11px] text-white/60">
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#6366F1] shrink-0" />
                     {f}
@@ -727,7 +736,7 @@ export default function Home() {
               </ul>
               <Link href="/create">
                 <button className="w-full h-11 rounded-full bg-white text-[#111] text-sm font-medium hover:bg-white/90 transition-colors flex items-center justify-center gap-2">
-                  Seal a prediction <ChevronRight className="w-4 h-4" />
+                  {t("home.modes.sealed.cta")} <ChevronRight className="w-4 h-4" />
                 </button>
               </Link>
             </motion.div>
@@ -743,10 +752,10 @@ export default function Home() {
             className="text-center mb-14"
           >
             <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1] mb-3">
-              The Protocol
+              {t("home.protocol.kicker")}
             </p>
             <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-              How it works
+              {t("home.protocol.title")}
             </h2>
           </motion.div>
 
@@ -790,8 +799,8 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-2">
-                  <h3 className="font-bold text-lg tracking-tight">{step.title}</h3>
-                  <p className="text-[#666666] text-sm leading-relaxed">{step.desc}</p>
+                  <h3 className="font-bold text-lg tracking-tight">{t(`home.protocol.${step.key}.title`)}</h3>
+                  <p className="text-[#666666] text-sm leading-relaxed">{t(`home.protocol.${step.key}.desc`)}</p>
                 </div>
 
                 {/* Crypto footer */}
@@ -843,21 +852,9 @@ export default function Home() {
         {/* Features */}
         <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-12 md:gap-16 text-left mb-20">
           {[
-            {
-              icon: Fingerprint,
-              title: "Timelock crittografico",
-              desc: "Le sealed predictions usano drand IBE (tlock-js). La chiave di decifrazione non esiste fisicamente fino alla data target — non è una password, è matematica.",
-            },
-            {
-              icon: ShieldCheck,
-              title: "Immutable Notarization",
-              desc: "Every entry is hashed and anchored to the Bitcoin blockchain via OpenTimestamps. Public predictions are also stored permanently on Arweave — two independent proofs.",
-            },
-            {
-              icon: Clock,
-              title: "Deterministic Reveal",
-              desc: "A cryptographically enforced time-lock ensures your vision remains private until the exact block height is reached.",
-            },
+            { icon: Fingerprint, key: "f1" },
+            { icon: ShieldCheck, key: "f2" },
+            { icon: Clock, key: "f3" },
           ].map((feature, idx) => (
             <motion.div
               key={idx}
@@ -871,9 +868,9 @@ export default function Home() {
                 <feature.icon className="w-5 h-5" strokeWidth={1.5} />
               </div>
               <div className="space-y-3">
-                <h3 className="font-bold text-xl tracking-tight">{feature.title}</h3>
+                <h3 className="font-bold text-xl tracking-tight">{t(`home.features.${feature.key}.title`)}</h3>
                 <p className="text-[#666666] leading-relaxed text-sm md:text-base">
-                  {feature.desc}
+                  {t(`home.features.${feature.key}.desc`)}
                 </p>
               </div>
             </motion.div>
@@ -905,7 +902,6 @@ export default function Home() {
         </motion.div>
       </main>
 
-      {/* Footer */}
       <footer className="w-full py-12 border-t border-[#E5E5E5]/50 bg-white/50 backdrop-blur-sm mt-8">
         <div className="max-w-7xl mx-auto px-6 md:px-12 flex flex-col md:flex-row justify-between items-center gap-8 text-xs text-[#666666]">
           <div className="flex flex-col md:items-start items-center gap-2">
@@ -916,11 +912,10 @@ export default function Home() {
               <span className="opacity-50">© 2026</span>
             </div>
             <p className="max-w-[300px] text-center md:text-left opacity-70 leading-relaxed">
-              An European project. The first trustless, privacy-first
-              infrastructure for future-proof statements.
+              {t("common.footer.tagline")}
             </p>
             <div className="mt-1 text-[10px] opacity-60">
-              By{" "}
+              {t("common.footer.by")}{" "}
               <a
                 href="https://giulioparrinello.it"
                 target="_blank"
@@ -936,17 +931,17 @@ export default function Home() {
             <div className="flex items-center gap-8">
               <Link href="/docs">
                 <span className="hover:text-[#111111] transition-colors font-medium cursor-pointer">
-                  Documentation
+                  {t("common.footer.documentation")}
                 </span>
               </Link>
               <Link href="/security-audit">
                 <span className="hover:text-[#111111] transition-colors font-medium cursor-pointer">
-                  Security Audit
+                  {t("common.footer.securityAudit")}
                 </span>
               </Link>
               <Link href="/privacy">
                 <span className="hover:text-[#111111] transition-colors font-medium cursor-pointer">
-                  Privacy
+                  {t("common.footer.privacy")}
                 </span>
               </Link>
               <a
@@ -961,6 +956,7 @@ export default function Home() {
             <div className="text-[10px] font-mono opacity-50 uppercase tracking-widest">
               Build: PANKO000 · Node-EU-Central
             </div>
+            <LanguageSwitcher />
           </div>
         </div>
       </footer>

@@ -5,6 +5,35 @@ import { webcrypto, randomUUID, timingSafeEqual } from "crypto";
 function stripTags(str: string): string {
   return str.replace(/<[^>]*>/g, "").replace(/&[a-z]+;|&#\d+;/gi, " ").trim();
 }
+
+// Remove glyphs that mimic the verified badge, so a user-supplied name can never
+// visually impersonate an official/verified account (e.g. "Giulio ✓"). The real
+// verified state lives in predictions.verified, set server-side only.
+function stripBadgeGlyphs(str: string): string {
+  return str
+    // BMP: ✅ ☑ ✓ ✔ ✨ + variation selector U+FE0F + enclosing keycap U+20E3
+    .replace(/[✅☑✓✔✨️⃣]/g, "")
+    // Astral 🔵 🔷 🛡 as surrogate pairs (no /u flag: server target is < es6)
+    .replace(/\uD83D[\uDD35\uDD37\uDEE1]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// Timing-safe check of the x-admin-secret header against ADMIN_SECRET. Pure
+// boolean (writes no response) so it can gate both the admin routes and the
+// server-derived "verified" flag on register.
+function isValidAdminSecret(req: Request): boolean {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret) return false;
+  const provided = req.headers["x-admin-secret"];
+  if (!provided || typeof provided !== "string") return false;
+  const secretBuf = Buffer.from(secret);
+  const providedBuf = Buffer.from(provided);
+  return (
+    secretBuf.length === providedBuf.length &&
+    timingSafeEqual(secretBuf, providedBuf)
+  );
+}
 import { storage } from "./storage";
 import { requestTsaToken } from "./services/tsa";
 import { submitToOts } from "./services/ots";
@@ -144,10 +173,14 @@ export async function registerRoutes(
           }
         : undefined;
 
-      // Sanitize author_name if provided
+      // Sanitize author_name if provided — strip tags AND badge-mimicking glyphs
       const sanitizedAuthorName = author_name
-        ? stripTags(author_name.slice(0, 100))
+        ? stripBadgeGlyphs(stripTags(author_name.slice(0, 100)))
         : null;
+
+      // "Verified" is derived SOLELY from a valid admin secret on the request.
+      // It is never read from the request body, so it cannot be spoofed.
+      const verified = isValidAdminSecret(req);
 
       // Determine arweave_status: only attempt upload if there's content to store
       const hasArweaveContent = !!(content || content_encrypted);
@@ -163,6 +196,7 @@ export async function registerRoutes(
           ots_proof: null,
           tsa_token: tsaToken,
           is_public,
+          verified,
           content: content ?? null,
           content_encrypted: content_encrypted ?? null,
           arweave_status: hasArweaveContent ? "pending" : "none",
@@ -272,6 +306,7 @@ export async function registerRoutes(
           target_year: p.target_year,
           target_datetime: p.target_datetime,
           author_name: p.author_name ?? null,
+          verified: p.verified,
           keywords: p.keywords,
           mode: p.mode,
           ots_status: p.ots_status,
@@ -317,6 +352,7 @@ export async function registerRoutes(
         target_year: prediction.target_year,
         target_datetime: prediction.target_datetime,
         author_name: prediction.author_name ?? null,
+        verified: prediction.verified,
         keywords: prediction.keywords,
         ots_confirmed: prediction.ots_status === "confirmed",
         ots_status: prediction.ots_status,
@@ -348,6 +384,7 @@ export async function registerRoutes(
         target_year: prediction.target_year,
         target_datetime: prediction.target_datetime,
         author_name: prediction.author_name ?? null,
+        verified: prediction.verified,
         keywords: prediction.keywords,
         ots_status: prediction.ots_status,
         bitcoin_block: prediction.bitcoin_block,
@@ -497,8 +534,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid signature" });
       }
 
-      // Sanitize display_name — strip all HTML tags and attributes
-      const sanitizedName = stripTags(display_name.slice(0, 100));
+      // Sanitize display_name — strip HTML tags AND badge-mimicking glyphs
+      const sanitizedName = stripBadgeGlyphs(stripTags(display_name.slice(0, 100)));
 
       // Pre-generate the ID so the URL can be included on first insert
       const attestationId = randomUUID();
@@ -564,19 +601,11 @@ export async function registerRoutes(
   // ─── Admin endpoints (protected by ADMIN_SECRET header) ─────────────────────
 
   function checkAdminSecret(req: Request, res: Response): boolean {
-    const secret = process.env.ADMIN_SECRET;
-    if (!secret) {
+    if (!process.env.ADMIN_SECRET) {
       res.status(503).json({ error: "Admin not configured (ADMIN_SECRET not set)" });
       return false;
     }
-    const provided = req.headers["x-admin-secret"];
-    if (!provided || typeof provided !== "string") {
-      res.status(401).json({ error: "Unauthorized" });
-      return false;
-    }
-    const secretBuf = Buffer.from(secret);
-    const providedBuf = Buffer.from(provided);
-    if (secretBuf.length !== providedBuf.length || !timingSafeEqual(secretBuf, providedBuf)) {
+    if (!isValidAdminSecret(req)) {
       res.status(401).json({ error: "Unauthorized" });
       return false;
     }

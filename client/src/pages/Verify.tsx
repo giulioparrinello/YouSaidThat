@@ -15,6 +15,7 @@ import {
   Download,
 } from "lucide-react";
 import { Link, useSearch } from "wouter";
+import { useTranslation, Trans } from "react-i18next";
 import { api, type VerifyResponse } from "@/lib/api";
 import { loadCapsule } from "@/lib/crypto";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
@@ -22,11 +23,12 @@ import { generateCertificatePdf } from "@/lib/generateCertificate";
 type Tab = "hash" | "capsule";
 
 function OtsStatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
   if (status === "confirmed") {
     return (
       <span className="flex items-center gap-1.5 text-[10px] font-mono text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full uppercase">
         <CheckCircle2 className="w-3 h-3" />
-        Bitcoin Anchored
+        {t("verify.bitcoinAnchored")}
       </span>
     );
   }
@@ -34,19 +36,20 @@ function OtsStatusBadge({ status }: { status: string }) {
     return (
       <span className="flex items-center gap-1.5 text-[10px] font-mono text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full uppercase">
         <XCircle className="w-3 h-3" />
-        OTS Failed
+        {t("verify.otsFailed")}
       </span>
     );
   }
   return (
     <span className="flex items-center gap-1.5 text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full uppercase">
       <Clock className="w-3 h-3" />
-      OTS Pending
+      {t("verify.otsPending")}
     </span>
   );
 }
 
 export default function Verify() {
+  const { t } = useTranslation();
   const search = useSearch();
   const [tab, setTab] = useState<Tab>("hash");
   const [hashInput, setHashInput] = useState(() => {
@@ -69,7 +72,7 @@ export default function Verify() {
 
   const verify = async (hash: string) => {
     if (!/^[a-f0-9]{64}$/.test(hash)) {
-      setError("Please enter a valid 64-character SHA-256 hash (lowercase hex).");
+      setError(t("verify.invalidHash"));
       return;
     }
     setLoading(true);
@@ -79,7 +82,7 @@ export default function Verify() {
       const data = await api.verifyPrediction(hash);
       setResult(data);
     } catch (err: any) {
-      setError(err?.message ?? "Verification failed.");
+      setError(err?.message ?? t("verify.verificationFailed"));
     } finally {
       setLoading(false);
     }
@@ -92,7 +95,7 @@ export default function Verify() {
       setTab("hash");
       await verify(capsule.hash);
     } catch (err: any) {
-      setError(err?.message ?? "Could not read capsule file.");
+      setError(err?.message ?? t("verify.capsuleReadError"));
     }
   };
 
@@ -111,11 +114,13 @@ export default function Verify() {
             yousaidthat.org
           </span>
         </Link>
-        <Link href="/create">
-          <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
-            Create a prediction
-          </span>
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/create">
+            <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
+              {t("verify.createLink")}
+            </span>
+          </Link>
+        </div>
       </nav>
 
       <main className="flex-1 flex flex-col items-center px-6 py-12 w-full max-w-xl mx-auto">
@@ -126,25 +131,25 @@ export default function Verify() {
           className="w-full"
         >
           <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1] mb-2">
-            Verification
+            {t("verify.kicker")}
           </p>
           <h1 className="text-3xl font-bold tracking-tight mb-8">
-            Verify a prediction
+            {t("verify.title")}
           </h1>
 
           {/* Tab toggle */}
           <div className="flex gap-1 p-1 bg-[#F5F5F5] rounded-full mb-6 w-fit">
-            {(["hash", "capsule"] as Tab[]).map((t) => (
+            {(["hash", "capsule"] as Tab[]).map((tabKey) => (
               <button
-                key={t}
-                onClick={() => { setTab(t); setResult(null); setError(null); }}
+                key={tabKey}
+                onClick={() => { setTab(tabKey); setResult(null); setError(null); }}
                 className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${
-                  tab === t
+                  tab === tabKey
                     ? "bg-white shadow-sm text-[#111]"
                     : "text-[#999] hover:text-[#666]"
                 }`}
               >
-                {t === "hash" ? "Enter Hash" : "Upload Capsule"}
+                {tabKey === "hash" ? t("verify.tabHash") : t("verify.tabCapsule")}
               </button>
             ))}
           </div>
@@ -175,7 +180,7 @@ export default function Verify() {
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <>
-                      <Search className="w-4 h-4" /> Verify
+                      <Search className="w-4 h-4" /> {t("verify.verifyBtn")}
                     </>
                   )}
                 </button>
@@ -200,9 +205,9 @@ export default function Verify() {
                 >
                   <Upload className="w-8 h-8 text-[#CCC]" />
                   <p className="text-sm text-[#666]">
-                    Drop your <span className="font-mono">.capsule</span> file here
+                    <Trans i18nKey="verify.dropHere" components={{ m: <span className="font-mono" /> }} />
                   </p>
-                  <p className="text-xs text-[#BBB]">or click to browse</p>
+                  <p className="text-xs text-[#BBB]">{t("verify.orBrowse")}</p>
                 </div>
                 <input
                   ref={fileRef}
@@ -241,13 +246,13 @@ export default function Verify() {
                   <div className="bg-white border border-[#E5E5E5] rounded-3xl p-6 space-y-5">
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="w-5 h-5 text-green-500" />
-                      <p className="font-semibold">Prediction found</p>
+                      <p className="font-semibold">{t("verify.found")}</p>
                     </div>
 
                     {/* Hash */}
                     <div>
                       <p className="text-[10px] font-mono uppercase text-[#BBB] mb-1">
-                        SHA-256 Hash
+                        {t("verify.hashLabel")}
                       </p>
                       <p className="text-xs font-mono text-[#444] break-all bg-[#FAFAFA] p-3 rounded-xl border border-[#F0F0F0]">
                         {result.hash}
@@ -258,7 +263,7 @@ export default function Verify() {
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
                         <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                          Mode
+                          {t("verify.mode")}
                         </p>
                         <p className="font-medium capitalize">
                           {result.mode?.replace(/_/g, " ")}
@@ -266,20 +271,20 @@ export default function Verify() {
                       </div>
                       <div>
                         <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                          Target
+                          {t("verify.target")}
                         </p>
                         <p className="font-medium">
                           {result.target_datetime
                             ? new Date(result.target_datetime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
                             : result.target_year
                             ? String(result.target_year)
-                            : "None"}
+                            : t("verify.none")}
                         </p>
                       </div>
                       {result.keywords && result.keywords.length > 0 && (
                         <div className="col-span-2">
                           <p className="text-[10px] font-mono text-[#BBB] uppercase mb-1">
-                            Keywords
+                            {t("verify.keywords")}
                           </p>
                           <div className="flex flex-wrap gap-1">
                             {result.keywords.map((k) => (
@@ -295,7 +300,7 @@ export default function Verify() {
                       )}
                       <div>
                         <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                          Registered
+                          {t("verify.registered")}
                         </p>
                         <p className="text-xs text-[#666]">
                           {result.timestamp_utc
@@ -306,7 +311,7 @@ export default function Verify() {
                       {result.bitcoin_block && (
                         <div>
                           <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                            Bitcoin Block
+                            {t("verify.bitcoinBlock")}
                           </p>
                           <p className="text-xs font-mono text-[#444]">
                             #{result.bitcoin_block.toLocaleString()}
@@ -319,7 +324,7 @@ export default function Verify() {
                     {result.content && (
                       <div>
                         <p className="text-[10px] font-mono uppercase text-[#BBB] mb-1">
-                          Original Content
+                          {t("verify.originalContent")}
                         </p>
                         <div className="bg-[#FAFAFA] border border-[#F0F0F0] rounded-xl p-3">
                           <p className="text-sm text-[#333] leading-relaxed whitespace-pre-wrap">
@@ -333,7 +338,7 @@ export default function Verify() {
                     {result.arweave_tx_id && (
                       <div>
                         <p className="text-[10px] font-mono uppercase text-[#BBB] mb-1">
-                          Permanent Storage
+                          {t("verify.permanentStorage")}
                         </p>
                         <a
                           href={`https://arweave.net/${result.arweave_tx_id}`}
@@ -383,12 +388,12 @@ export default function Verify() {
                       className="w-full h-10 rounded-full border border-[#6366F1]/30 bg-[#6366F1]/5 text-[#6366F1] text-xs font-medium flex items-center justify-center gap-1.5 hover:bg-[#6366F1]/10 transition-colors"
                     >
                       <FileText className="w-3.5 h-3.5" />
-                      Download Certificate (PDF)
+                      {t("verify.downloadCert")}
                     </button>
 
                     <Link href={`/unlock`}>
                       <button className="w-full h-10 rounded-full bg-[#111111] text-white text-xs font-medium flex items-center justify-center gap-1.5 hover:bg-[#222] transition-colors">
-                        Unlock this prediction
+                        {t("verify.unlockThis")}
                         <ExternalLink className="w-3.5 h-3.5" />
                       </button>
                     </Link>
@@ -397,14 +402,14 @@ export default function Verify() {
                   <div className="bg-white border border-[#E5E5E5] rounded-3xl p-6 text-center space-y-4">
                     <XCircle className="w-8 h-8 text-[#CCC] mx-auto" />
                     <div>
-                      <p className="font-semibold text-[#111]">Hash not found</p>
+                      <p className="font-semibold text-[#111]">{t("verify.notFound")}</p>
                       <p className="text-sm text-[#666] mt-1">
-                        This hash is not registered on YouSaidThat.
+                        {t("verify.notFoundDesc")}
                       </p>
                     </div>
                     <Link href="/create">
                       <button className="h-10 px-6 rounded-full bg-[#111111] text-white text-xs font-medium hover:bg-[#222] transition-colors">
-                        Register a prediction
+                        {t("verify.registerCta")}
                       </button>
                     </Link>
                   </div>

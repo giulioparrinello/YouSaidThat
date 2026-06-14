@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ExternalLink, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -639,12 +640,19 @@ export default function SecurityAudit() {
         </article>
       </div>
 
-      {/* ─── Footer ─── */}
       <footer className="w-full py-8 border-t border-[#E5E5E5]/50 bg-white/50 mt-4">
         <div className="max-w-7xl mx-auto px-6 md:px-12 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-[#666]">
-          <span className="font-bold text-[#111] tracking-tight">
-            yousaidthat.org
-          </span>
+          <div className="flex flex-col items-center md:items-start gap-1">
+            <span className="font-bold text-[#111] tracking-tight">
+              yousaidthat.org
+            </span>
+            <span className="text-[10px] text-[#999]">
+              by{" "}
+              <a href="https://giulioparrinello.it" target="_blank" rel="noopener noreferrer" className="hover:text-[#111] underline underline-offset-2 transition-colors">
+                Giulio Parrinello
+              </a>
+            </span>
+          </div>
           <div className="flex items-center gap-6">
             <Link href="/docs">
               <span className="hover:text-[#111] transition-colors cursor-pointer">
@@ -669,6 +677,7 @@ export default function SecurityAudit() {
             >
               GitHub
             </a>
+            <LanguageSwitcher />
           </div>
         </div>
       </footer>

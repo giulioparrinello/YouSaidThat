@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ExternalLink } from "lucide-react";
 
 // ─── Sidebar definition ───────────────────────────────────────────────────────
@@ -313,7 +314,7 @@ tlockEncrypt(text, targetRound) → ct       [client, tlock-js]
 POST /api/predictions/register
   { hash, mode: "sealed_prediction", drand_round, target_datetime, ... }
   ↓
-Server: OTS submit (Bitcoin calendars)     [async]
+Server: OTS submit (Bitcoin calendars)     [sync — proof stored before response]
 Server: RFC 3161 TSA token                 [sync, returned immediately]
   ↓
 Response: { prediction_id, tsa_token, ... }
@@ -330,9 +331,9 @@ SHA-256(utf8(text)) → hash                 [client]
 POST /api/predictions/register
   { hash, mode: "proof_of_existence", content, is_public: true, ... }
   ↓
-Server: OTS submit                         [async]
+Server: OTS submit                         [sync — proof stored before response]
 Server: RFC 3161 TSA token                 [sync]
-Server: Arweave upload                     [async]
+Server: Arweave upload                     [async, retried by cron]
   ↓
 Response: { prediction_id, tsa_token, arweave_tx_id, ... }
           `}</Code>
@@ -524,7 +525,8 @@ Mode : AES-256-GCM (authenticated encryption with 128-bit tag)
 
           <P>
             <strong>ots_proof</strong> is <IC>null</IC> at creation time.
-            Bitcoin confirmation takes 1–3 hours. Poll{" "}
+            Bitcoin aggregation takes 1–3 hours; the server refreshes the
+            status every 6 hours. Poll{" "}
             <IC>GET /api/predictions/:id/ots-status</IC> and update the capsule
             manually once the status changes to <IC>confirmed</IC>.
           </P>
@@ -604,8 +606,12 @@ printf '%s' "your exact plaintext" | sha256sum
 # Decode token
 echo "<base64_tsa_token>" | base64 -d > tsa.tsr
 
-# Verify with OpenSSL (requires the issuing CA cert)
-openssl ts -verify -in tsa.tsr -data <(printf '%s' "your plaintext" | sha256sum -b | cut -d' ' -f1 | xxd -r -p) -CAfile actalis-ca.pem
+# Verify with OpenSSL (requires the issuing CA cert).
+# The message imprint is SHA-256 of the plaintext, i.e. capsule.hash:
+openssl ts -verify -in tsa.tsr -digest <capsule.hash> -CAfile actalis-ca.pem
+
+# Or directly against the plaintext file:
+openssl ts -verify -in tsa.tsr -data plaintext.txt -CAfile actalis-ca.pem
           `}</Code>
           <P>
             The Actalis TSA root certificate is available from{" "}
@@ -622,9 +628,9 @@ openssl ts -verify -in tsa.tsr -data <(printf '%s' "your plaintext" | sha256sum 
 # Install opentimestamps-client
 pip install opentimestamps-client
 
-# Decode and verify
+# Decode and verify (-d takes the SHA-256 digest, i.e. capsule.hash)
 echo "<base64_ots_proof>" | base64 -d > proof.ots
-ots verify proof.ots --hash <capsule.hash>
+ots verify -d <capsule.hash> proof.ots
           `}</Code>
 
           <H3 id="verify-arweave">Arweave (Cleartext Predictions)</H3>
@@ -655,10 +661,11 @@ curl https://arweave.net/<arweave_tx_id>
             description="Registers a SHA-256 hash, submits it to OTS Bitcoin calendars, and issues an RFC 3161 TSA token. For cleartext Proof of Existence, the content is uploaded to Arweave asynchronously."
             request={`{
   "hash": "a3f9e2b1...",            // SHA-256 hex, 64 chars, required
-  "mode": "sealed_prediction",      // "proof_of_existence" | "sealed_prediction"
-  "target_year": 2030,              // integer, current year ≤ year ≤ current+50
+  "mode": "sealed_prediction",      // "proof_of_existence" | "sealed_prediction" (required)
+  "target_year": 2030,              // optional, current year ≤ year ≤ current+50
+  "author_name": "Jane Doe",        // optional, public display name, max 100
   "keywords": ["tech", "ai"],       // optional, max 3, max 30 chars each
-  "email": "user@example.com",       // optional, for future delivery reminder
+  "email": "user@example.com",       // optional, raw email for a delivery reminder
   "is_public": false,               // whether to include in public feed
   "content": "...",                 // proof_of_existence cleartext only, max 10000 chars
   "content_encrypted": "...",       // proof_of_existence encrypted only, max 50000 chars
@@ -675,32 +682,41 @@ curl https://arweave.net/<arweave_tx_id>
   "arweave_tx_id": null,                 // populated async for cleartext mode
   "arweave_status": "none"
 }`}
-            notes="OTS confirmation typically takes 1–3 hours. tsa_token is issued synchronously; null only if all three configured TSA providers fail."
+            notes="OTS confirmation typically becomes visible within a few hours (Bitcoin aggregation + 6-hourly server poll). tsa_token is issued synchronously; null only if all three configured TSA providers fail."
           />
 
           <H3 id="api-public">List public predictions</H3>
           <ApiCard
             method="GET"
             path="/api/predictions/public"
-            description="Returns paginated public predictions (proof_of_existence with is_public=true). Supports filtering by keyword and year."
+            description="Returns paginated public predictions (is_public=true). Supports filtering by keyword and year, and an optional voter fingerprint to populate my_vote."
             request={`// Query parameters (all optional):
 ?page=1
-&limit=20          // max 50
-&keyword=tech      // filter by keyword
-&year=2030         // filter by target year`}
+&limit=20             // max 50
+&keyword=tech         // filter by keyword
+&year=2030            // filter by target year
+&fingerprint=<uuid>   // anonymous voter id → populates my_vote`}
             response={`{
   "predictions": [
     {
       "id": "f47ac10b...",
       "hash_preview": "a3f9e2b1",   // first 8 chars of hash
       "target_year": 2030,
+      "target_datetime": null,
+      "author_name": "Jane Doe",    // null if none
+      "verified": false,            // true for official/verified posts
       "keywords": ["tech"],
       "mode": "proof_of_existence",
       "ots_status": "confirmed",
       "created_at": "2026-03-12T10:23:45.000Z",
+      "timestamp_utc": "2026-03-12T10:23:45.000Z",
       "content": "...",             // present for cleartext mode
       "arweave_tx_id": "xyz...",
-      "arweave_status": "confirmed"
+      "arweave_status": "confirmed",
+      "likes_count": 12,
+      "dislikes_count": 1,
+      "my_vote": null,              // "like" | "dislike" | null
+      "is_retroactive": false       // sealed prediction later revealed
     }
   ],
   "total": 412,
@@ -720,6 +736,9 @@ curl https://arweave.net/<arweave_tx_id>
   "hash": "a3f9e2b1...",
   "mode": "proof_of_existence",
   "target_year": 2030,
+  "target_datetime": null,
+  "author_name": "Jane Doe",         // null if none
+  "verified": false,                 // true for official/verified posts
   "keywords": ["tech"],
   "ots_confirmed": true,
   "ots_status": "confirmed",
@@ -838,12 +857,19 @@ curl https://arweave.net/<arweave_tx_id>
         </article>
       </div>
 
-      {/* ─── Footer ─── */}
       <footer className="w-full py-8 border-t border-[#E5E5E5]/50 bg-white/50 mt-4">
         <div className="max-w-7xl mx-auto px-6 md:px-12 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-[#666]">
-          <span className="font-bold text-[#111] tracking-tight">
-            yousaidthat.org
-          </span>
+          <div className="flex flex-col items-center md:items-start gap-1">
+            <span className="font-bold text-[#111] tracking-tight">
+              yousaidthat.org
+            </span>
+            <span className="text-[10px] text-[#999]">
+              by{" "}
+              <a href="https://giulioparrinello.it" target="_blank" rel="noopener noreferrer" className="hover:text-[#111] underline underline-offset-2 transition-colors">
+                Giulio Parrinello
+              </a>
+            </span>
+          </div>
           <div className="flex items-center gap-6">
             <Link href="/docs">
               <span className="text-[#6366F1] font-medium cursor-pointer">
@@ -868,6 +894,7 @@ curl https://arweave.net/<arweave_tx_id>
             >
               GitHub
             </a>
+            <LanguageSwitcher />
           </div>
         </div>
       </footer>

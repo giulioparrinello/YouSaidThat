@@ -18,7 +18,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { Link, useRoute } from "wouter";
+import { useTranslation } from "react-i18next";
 import { api, type PredictionDetailResponse } from "@/lib/api";
+import { VerifiedAuthor } from "@/components/VerifiedBadge";
 
 function Row({
   icon,
@@ -43,6 +45,7 @@ function Row({
 }
 
 export default function Prediction() {
+  const { t } = useTranslation();
   const [, params] = useRoute("/p/:id");
   const predictionId = params?.id ?? "";
 
@@ -58,7 +61,7 @@ export default function Prediction() {
     api
       .getPrediction(predictionId)
       .then(setData)
-      .catch((err: any) => setError(err?.message ?? "Prediction not found"))
+      .catch((err: any) => setError(err?.message ?? t("prediction.notFoundError")))
       .finally(() => setLoading(false));
   }, [predictionId]);
 
@@ -111,12 +114,12 @@ export default function Prediction() {
         <div className="flex items-center gap-4">
           <Link href="/community">
             <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
-              Community
+              {t("common.nav.community")}
             </span>
           </Link>
           <Link href="/verify">
             <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
-              Verify
+              {t("common.nav.verify")}
             </span>
           </Link>
         </div>
@@ -146,11 +149,11 @@ export default function Prediction() {
             <div className="w-14 h-14 rounded-2xl bg-[#F5F5F5] border border-[#E5E5E5] flex items-center justify-center mx-auto">
               <XCircle className="w-6 h-6 text-[#CCC]" />
             </div>
-            <p className="font-semibold text-[#111]">Prediction not found</p>
+            <p className="font-semibold text-[#111]">{t("prediction.notFoundTitle")}</p>
             <p className="text-sm text-[#666]">{error}</p>
             <Link href="/community">
               <button className="mt-2 h-10 px-6 rounded-full bg-[#111] text-white text-xs hover:bg-[#333] transition-colors">
-                Back to community
+                {t("prediction.backToCommunity")}
               </button>
             </Link>
           </motion.div>
@@ -178,7 +181,7 @@ export default function Prediction() {
                 )}
               </div>
               <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1]">
-                {isSealed ? "Sealed Prediction" : "Proof of Existence"}
+                {isSealed ? t("community.sealedPrediction") : t("community.proofOfExistence")}
               </p>
             </div>
 
@@ -189,7 +192,7 @@ export default function Prediction() {
                 {/* Hash */}
                 <Row
                   icon={<Hash className="w-3.5 h-3.5 text-[#999]" />}
-                  label="SHA-256 Hash"
+                  label={t("verify.hashLabel")}
                 >
                   <div className="flex items-start gap-2">
                     <p className="text-[11px] font-mono text-[#444] break-all leading-relaxed flex-1">
@@ -214,12 +217,12 @@ export default function Prediction() {
                 {/* Dates grid */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">Registered</p>
+                    <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">{t("verify.registered")}</p>
                     <p className="text-sm text-[#444]">{registeredLabel}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">
-                      {data.target_datetime ? "Unlock date" : "Target year"}
+                      {data.target_datetime ? t("prediction.unlockDate") : t("prediction.targetYear")}
                     </p>
                     <p className="text-sm font-semibold">{targetLabel}</p>
                   </div>
@@ -227,14 +230,20 @@ export default function Prediction() {
 
                 {/* Author */}
                 {data.author_name && (
-                  <Row icon={<User className="w-3.5 h-3.5 text-[#999]" />} label="Author">
-                    <p className="text-sm text-[#444]">{data.author_name}</p>
+                  <Row icon={<User className="w-3.5 h-3.5 text-[#999]" />} label={t("prediction.author")}>
+                    <p className="text-sm text-[#444] flex items-center gap-1">
+                      {data.verified ? (
+                        <VerifiedAuthor name={data.author_name} />
+                      ) : (
+                        data.author_name
+                      )}
+                    </p>
                   </Row>
                 )}
 
                 {/* Content (proof_of_existence public) */}
                 {data.content && (
-                  <Row icon={<Eye className="w-3.5 h-3.5 text-[#999]" />} label="Prediction">
+                  <Row icon={<Eye className="w-3.5 h-3.5 text-[#999]" />} label={t("community.predictionLabel")}>
                     <p className="text-sm text-[#333] leading-relaxed whitespace-pre-wrap mt-0.5">
                       {data.content}
                     </p>
@@ -243,7 +252,7 @@ export default function Prediction() {
 
                 {/* Keywords */}
                 {data.keywords && data.keywords.length > 0 && (
-                  <Row icon={<Tag className="w-3.5 h-3.5 text-[#999]" />} label="Keywords">
+                  <Row icon={<Tag className="w-3.5 h-3.5 text-[#999]" />} label={t("verify.keywords")}>
                     <div className="flex flex-wrap gap-1.5 mt-1">
                       {data.keywords.map((k) => (
                         <span
@@ -264,18 +273,18 @@ export default function Prediction() {
                   {isConfirmed ? (
                     <span className="flex items-center gap-1.5 text-[10px] font-mono text-green-700 bg-green-50 border border-green-100 px-2.5 py-1 rounded-full">
                       <CheckCircle2 className="w-3 h-3" />
-                      Bitcoin Anchored
+                      {t("verify.bitcoinAnchored")}
                       {data.bitcoin_block && ` · #${data.bitcoin_block.toLocaleString()}`}
                     </span>
                   ) : data.ots_status === "failed" ? (
                     <span className="flex items-center gap-1.5 text-[10px] font-mono text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
                       <XCircle className="w-3 h-3" />
-                      OTS Failed
+                      {t("verify.otsFailed")}
                     </span>
                   ) : (
                     <span className="flex items-center gap-1.5 text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full">
                       <Clock className="w-3 h-3 animate-pulse" />
-                      Pending Bitcoin Anchor
+                      {t("prediction.pendingAnchor")}
                     </span>
                   )}
 
@@ -289,7 +298,7 @@ export default function Prediction() {
                   {data.is_public && (
                     <span className="flex items-center gap-1.5 text-[10px] font-mono text-[#666] bg-[#F5F5F5] border border-[#E5E5E5] px-2.5 py-1 rounded-full">
                       <Eye className="w-3 h-3" />
-                      Public
+                      {t("prediction.publicBadge")}
                     </span>
                   )}
                 </div>
@@ -317,12 +326,12 @@ export default function Prediction() {
                 {copied ? (
                   <>
                     <Check className="w-4 h-4 text-green-500" />
-                    Copied
+                    {t("prediction.copied")}
                   </>
                 ) : (
                   <>
                     <Copy className="w-4 h-4" />
-                    Copy link
+                    {t("prediction.copyLink")}
                   </>
                 )}
               </button>
@@ -330,7 +339,7 @@ export default function Prediction() {
               <Link href={`/verify?hash=${data.hash}`}>
                 <button className="h-11 px-5 rounded-full border border-[#E5E5E5] text-sm flex items-center gap-2 hover:bg-[#F5F5F5] transition-colors whitespace-nowrap">
                   <ExternalLink className="w-4 h-4" />
-                  Verify
+                  {t("common.nav.verify")}
                 </button>
               </Link>
 
@@ -338,7 +347,7 @@ export default function Prediction() {
                 <Link href={`/unlock`}>
                   <button className="h-11 px-5 rounded-full bg-[#6366F1] text-white text-sm flex items-center gap-2 hover:bg-[#4F46E5] transition-colors whitespace-nowrap">
                     <Lock className="w-4 h-4" />
-                    Unlock
+                    {t("common.nav.unlock")}
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </Link>
@@ -367,7 +376,7 @@ export default function Prediction() {
               >
                 <summary className="flex items-center gap-2 text-xs text-[#999] cursor-pointer hover:text-[#666] transition-colors select-none list-none">
                   <Bitcoin className="w-3.5 h-3.5 text-amber-500" />
-                  Show OTS proof (base64)
+                  {t("prediction.showOts")}
                 </summary>
                 <div className="mt-3 p-4 rounded-2xl bg-[#F8F8F8] border border-[#F0F0F0]">
                   <p className="text-[10px] font-mono text-[#AAA] break-all leading-relaxed">

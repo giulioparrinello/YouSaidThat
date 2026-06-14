@@ -61,6 +61,7 @@ export interface PublicPrediction {
   target_year: number | null;
   target_datetime: string | null;
   author_name: string | null;
+  verified: boolean;
   keywords: string[] | null;
   mode: string;
   ots_status: string;
@@ -95,6 +96,7 @@ export interface VerifyResponse {
   mode?: string;
   target_year?: number | null;
   target_datetime?: string | null;
+  verified?: boolean;
   keywords?: string[] | null;
   ots_confirmed?: boolean;
   ots_status?: string;
@@ -114,6 +116,7 @@ export interface PredictionDetailResponse {
   target_year: number | null;
   target_datetime: string | null;
   author_name: string | null;
+  verified: boolean;
   keywords: string[] | null;
   ots_status: string;
   bitcoin_block: number | null;
@@ -185,21 +188,30 @@ export interface AttestationPageResponse {
 export const api = {
   getStats: () => req<{ total: number }>("/api/stats"),
 
-  registerPrediction: (body: {
-    hash: string;
-    mode: "proof_of_existence" | "sealed_prediction";
-    target_year?: number;
-    author_name?: string;
-    keywords?: string[];
-    email?: string;
-    is_public: boolean;
-    content?: string;
-    content_encrypted?: string;
-    drand_round?: number;
-    target_datetime?: string;
-  }) =>
+  registerPrediction: (
+    body: {
+      hash: string;
+      mode: "proof_of_existence" | "sealed_prediction";
+      target_year?: number;
+      author_name?: string;
+      keywords?: string[];
+      email?: string;
+      is_public: boolean;
+      content?: string;
+      content_encrypted?: string;
+      drand_round?: number;
+      target_datetime?: string;
+    },
+    // When present, authorizes posting as a verified/official account. The
+    // server validates it (timing-safe) and never trusts a client-set flag.
+    adminSecret?: string,
+  ) =>
     req<RegisterResponse>("/api/predictions/register", {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(adminSecret ? { "x-admin-secret": adminSecret } : {}),
+      },
       body: JSON.stringify(body),
     }),
 

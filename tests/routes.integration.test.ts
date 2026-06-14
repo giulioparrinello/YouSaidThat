@@ -401,6 +401,51 @@ describe("cron endpoints", () => {
   });
 });
 
+describe("verified posts", () => {
+  it("ignores a client-supplied verified flag and strips badge glyphs from the name", async () => {
+    const hash = await hashText("spoof attempt");
+    const reg = await post("/api/predictions/register", {
+      hash,
+      mode: "proof_of_existence",
+      is_public: false,
+      author_name: "Spoofer ✓",
+      verified: true, // must be ignored — not in schema, server derives it
+    });
+    expect(reg.status).toBe(201);
+
+    const res = await fetch(`${baseUrl}/api/predictions/verify?hash=${hash}`);
+    const body = await res.json();
+    expect(body.verified).toBe(false);
+    expect(body.author_name).toBe("Spoofer"); // checkmark glyph removed
+  });
+
+  it("marks the post verified when the correct admin secret header is present", async () => {
+    const hash = await hashText("official post");
+    const reg = await post(
+      "/api/predictions/register",
+      { hash, mode: "proof_of_existence", is_public: false },
+      { "x-admin-secret": "test-admin-secret" },
+    );
+    expect(reg.status).toBe(201);
+
+    const res = await fetch(`${baseUrl}/api/predictions/verify?hash=${hash}`);
+    expect((await res.json()).verified).toBe(true);
+  });
+
+  it("does not verify when the admin secret is wrong", async () => {
+    const hash = await hashText("fake official post");
+    const reg = await post(
+      "/api/predictions/register",
+      { hash, mode: "proof_of_existence", is_public: false },
+      { "x-admin-secret": "wrong-secret-value" },
+    );
+    expect(reg.status).toBe(201);
+
+    const res = await fetch(`${baseUrl}/api/predictions/verify?hash=${hash}`);
+    expect((await res.json()).verified).toBe(false);
+  });
+});
+
 describe("rate limiting", () => {
   // Must run last: it exhausts the register limiter (10/min per IP)
   it("returns 429 once the register limit is exceeded", async () => {

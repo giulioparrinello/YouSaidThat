@@ -15,6 +15,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useTranslation, Trans } from "react-i18next";
 import {
   hashBinary,
   encryptBytes,
@@ -48,7 +49,7 @@ function downloadBytes(bytes: Uint8Array, filename: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-const STEPS = ["Document", "Time-Lock", "Seal"];
+const STEP_KEYS = ["document", "timelock", "seal"] as const;
 
 // 8 MB cap — base64 inside the .capsule inflates ~33%, kept comfortable for download.
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -70,9 +71,10 @@ function prettySize(bytes: number): string {
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 function StepBar({ current }: { current: number }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-2 mb-8">
-      {STEPS.map((label, i) => (
+      {STEP_KEYS.map((key, i) => (
         <div key={i} className="flex items-center gap-2">
           <div
             className={`flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-mono font-bold transition-all duration-300 ${
@@ -90,9 +92,9 @@ function StepBar({ current }: { current: number }) {
               i === current ? "text-[#111] font-medium" : "text-[#999]"
             }`}
           >
-            {label}
+            {t(`seal.steps.${key}`)}
           </span>
-          {i < STEPS.length - 1 && (
+          {i < STEP_KEYS.length - 1 && (
             <div
               className={`h-px w-6 transition-colors ${
                 i < current ? "bg-[#111]" : "bg-[#E5E5E5]"
@@ -107,6 +109,7 @@ function StepBar({ current }: { current: number }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function SealDocument() {
+  const { t } = useTranslation();
   const [step, setStep] = useState(0);
 
   // Encryption method: real native PDF (qpdf) vs YST container (.capsule).
@@ -166,11 +169,11 @@ export default function SealDocument() {
     fileBufRef.current = null;
 
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setFileError("Only PDF files are supported in this phase.");
+      setFileError(t("seal.onlyPdf"));
       return;
     }
     if (file.size > MAX_BYTES) {
-      setFileError(`File too large (${prettySize(file.size)}). Max ${prettySize(MAX_BYTES)}.`);
+      setFileError(t("seal.tooLarge", { size: prettySize(file.size), max: prettySize(MAX_BYTES) }));
       return;
     }
 
@@ -183,7 +186,7 @@ export default function SealDocument() {
       setFileName(file.name);
       setFileSize(file.size);
     } catch {
-      setFileError("Could not read the file. Please try again.");
+      setFileError(t("seal.readError"));
     } finally {
       setFileHashing(false);
     }
@@ -224,13 +227,13 @@ export default function SealDocument() {
         const userPw = randomPassword();
         const ownerPw = randomPassword();
 
-        setSealStep("Encrypting PDF with AES-256 (qpdf)…");
+        setSealStep(t("seal.sealing.encryptPdf"));
         const encPdf = await encryptPdf(buffer, userPw, ownerPw);
 
-        setSealStep("Sealing password with drand timelock…");
+        setSealStep(t("seal.sealing.sealPassword"));
         const tlock = await tlockEncrypt(userPw, targetMs);
 
-        setSealStep("Registering on YouSaidThat…");
+        setSealStep(t("seal.sealing.register"));
         const res = await api.registerPrediction({
           hash,
           mode: "sealed_prediction",
@@ -257,7 +260,7 @@ export default function SealDocument() {
           tsa_token: res.tsa_token,
           created_at: res.created_at ?? new Date().toISOString(),
         };
-        setSealStep("Embedding seal & saving PDF…");
+        setSealStep(t("seal.sealing.embed"));
         const finalBytes = appendSeal(encPdf, seal);
         sealedPdfRef.current = finalBytes;
         downloadBytes(finalBytes, `${base}-sealed.pdf`, "application/pdf");
@@ -295,13 +298,13 @@ export default function SealDocument() {
       }
 
       // ── Container (.capsule): AES-256-GCM blob, key sealed with tlock ──
-      setSealStep("Encrypting PDF with AES-256-GCM…");
+      setSealStep(t("seal.sealing.encryptGcm"));
       const enc = await encryptBytes(buffer);
 
-      setSealStep("Sealing key with drand timelock…");
+      setSealStep(t("seal.sealing.sealKey"));
       const tlock = await tlockEncrypt(enc.keyB64, targetMs);
 
-      setSealStep("Registering on YouSaidThat…");
+      setSealStep(t("seal.sealing.register"));
       const res = await api.registerPrediction({
         hash,
         mode: "sealed_prediction",
@@ -345,16 +348,16 @@ export default function SealDocument() {
         mime_type: "application/pdf",
       };
 
-      setSealStep("Generating capsule file…");
+      setSealStep(t("seal.sealing.capsule"));
       downloadCapsule(capsule, `${base}-sealed-${hash.slice(0, 8)}.capsule`);
       setSealed(capsule);
     } catch (err: any) {
-      setError(err?.message ?? "Something went wrong. Please try again.");
+      setError(err?.message ?? t("common.error"));
     } finally {
       setSealing(false);
       setSealStep("");
     }
-  }, [fileHash, targetDatetime, authorName, email, fileName, fileSize, method]);
+  }, [fileHash, targetDatetime, authorName, email, fileName, fileSize, method, t]);
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] text-[#111111] flex flex-col font-sans">
@@ -365,11 +368,13 @@ export default function SealDocument() {
             yousaidthat.org
           </span>
         </Link>
-        <Link href="/unlock">
-          <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
-            Unlock a capsule
-          </span>
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/unlock">
+            <span className="text-xs text-[#666] hover:text-[#111] transition-colors cursor-pointer">
+              {t("seal.unlockLink")}
+            </span>
+          </Link>
+        </div>
       </nav>
 
       <main className="flex-1 flex flex-col items-center justify-start px-6 py-12 w-full max-w-xl mx-auto">
@@ -380,12 +385,11 @@ export default function SealDocument() {
           className="w-full"
         >
           <p className="text-[10px] font-mono tracking-[0.3em] uppercase text-[#6366F1] mb-2">
-            Sealed Document
+            {t("seal.kicker")}
           </p>
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Time-lock a PDF</h1>
+          <h1 className="text-3xl font-bold tracking-tight mb-2">{t("seal.title")}</h1>
           <p className="text-sm text-[#666] leading-relaxed mb-8">
-            Your PDF is encrypted in your browser with a strong key we never see. The key is
-            sealed with a drand timelock — nobody can open it before your chosen date.
+            {t("seal.subtitle")}
           </p>
 
           <StepBar current={step} />
@@ -404,7 +408,7 @@ export default function SealDocument() {
                 {/* Encryption method */}
                 <div>
                   <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
-                    Output format
+                    {t("seal.outputFormat")}
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -416,10 +420,10 @@ export default function SealDocument() {
                       }`}
                     >
                       <p className={`text-xs font-semibold mb-1 ${method === "qpdf-aes256" ? "text-[#6366F1]" : "text-[#111]"}`}>
-                        Real PDF (.pdf)
+                        {t("seal.realPdf")}
                       </p>
                       <p className="text-[10px] text-[#666] leading-relaxed">
-                        A genuine AES-256 password-protected PDF, openable in any reader. Self-unlocks here.
+                        {t("seal.realPdfDesc")}
                       </p>
                     </button>
                     <button
@@ -431,17 +435,17 @@ export default function SealDocument() {
                       }`}
                     >
                       <p className={`text-xs font-semibold mb-1 ${method === "container" ? "text-[#6366F1]" : "text-[#111]"}`}>
-                        Container (.capsule)
+                        {t("seal.container")}
                       </p>
                       <p className="text-[10px] text-[#666] leading-relaxed">
-                        A YST capsule file. Opens only on yousaidthat.org.
+                        {t("seal.containerDesc")}
                       </p>
                     </button>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-mono bg-[#6366F1]/5 border border-[#6366F1]/20 text-[#6366F1]">
-                  <Lock className="w-3 h-3" /> Encrypted locally — the server never sees the PDF or the key
+                  <Lock className="w-3 h-3" /> {t("seal.localNote")}
                 </div>
 
                 <input
@@ -471,13 +475,13 @@ export default function SealDocument() {
                     {fileHashing ? (
                       <>
                         <Loader2 className="w-8 h-8 text-[#6366F1] animate-spin" />
-                        <p className="text-sm text-[#666]">Computing SHA-256…</p>
+                        <p className="text-sm text-[#666]">{t("create.computingHash")}</p>
                       </>
                     ) : (
                       <>
                         <Upload className="w-8 h-8 text-[#CCC]" />
-                        <p className="text-sm text-[#666] text-center">Drop your PDF here</p>
-                        <p className="text-xs text-[#BBB]">or click to browse · max {prettySize(MAX_BYTES)}</p>
+                        <p className="text-sm text-[#666] text-center">{t("seal.dropPdf")}</p>
+                        <p className="text-xs text-[#BBB]">{t("seal.browseMax", { max: prettySize(MAX_BYTES) })}</p>
                       </>
                     )}
                   </div>
@@ -509,8 +513,7 @@ export default function SealDocument() {
                 )}
 
                 <p className="text-[11px] text-[#999] leading-relaxed">
-                  The PDF is encrypted and hashed locally in your browser. Only the hash and the
-                  unlock date are registered — the encrypted file stays inside the capsule you download.
+                  {t("seal.privacyNote")}
                 </p>
               </motion.div>
             )}
@@ -527,7 +530,7 @@ export default function SealDocument() {
               >
                 <div>
                   <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-3 block">
-                    Unlock date &amp; time
+                    {t("create.unlockLabel")}
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -555,14 +558,14 @@ export default function SealDocument() {
                   {targetDatetime && (
                     <div className="mt-3 space-y-1">
                       <p className="text-xs text-[#999] font-mono">
-                        Unlocks: {new Date(targetDatetime).toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" })}
+                        {t("create.unlocksAt", { date: new Date(targetDatetime).toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" }) })}
                       </p>
                       {(() => {
                         try {
                           const round = drandRoundAt(new Date(targetDatetime).getTime());
                           return (
                             <p className="text-[10px] text-[#BBB] font-mono">
-                              drand quicknet round #{round.toLocaleString()}
+                              {t("create.drandRound", { round: round.toLocaleString() })}
                             </p>
                           );
                         } catch {
@@ -574,8 +577,7 @@ export default function SealDocument() {
                   <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-[#6366F1]/5 border border-[#6366F1]/20">
                     <Lock className="w-3.5 h-3.5 text-[#6366F1] mt-0.5 shrink-0" />
                     <p className="text-[11px] text-[#6366F1] leading-relaxed">
-                      The AES key is sealed with drand IBE — mathematically impossible to recover before
-                      this moment, even with the capsule file in hand.
+                      {t("seal.keySealNote")}
                     </p>
                   </div>
                 </div>
@@ -583,20 +585,20 @@ export default function SealDocument() {
                 <div className="space-y-5">
                   <div>
                     <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
-                      Author name <span className="normal-case text-[#CCC]">(optional)</span>
+                      {t("create.authorLabel")} <span className="normal-case text-[#CCC]">({t("common.optional")})</span>
                     </label>
                     <input
                       type="text"
                       value={authorName}
                       onChange={(e) => setAuthorName(e.target.value)}
-                      placeholder="Your name or alias"
+                      placeholder={t("create.authorPlaceholder")}
                       maxLength={100}
                       className="w-full h-11 rounded-full border border-[#E5E5E5] bg-white px-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
                     />
                   </div>
                   <div>
                     <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">
-                      Email reminder <span className="normal-case text-[#CCC]">(optional)</span>
+                      {t("create.emailLabel")} <span className="normal-case text-[#CCC]">({t("common.optional")})</span>
                     </label>
                     <input
                       type="email"
@@ -608,7 +610,7 @@ export default function SealDocument() {
                     <div className="mt-2 flex items-start gap-2 p-3 rounded-xl bg-[#FAFAFA] border border-[#E5E5E5]">
                       <ShieldCheck className="w-4 h-4 text-[#6366F1] mt-0.5 shrink-0" />
                       <p className="text-[11px] text-[#666] leading-relaxed">
-                        We'll email you when the unlock date arrives. A confirmation email is sent first.
+                        {t("seal.emailNote")}
                       </p>
                     </div>
                   </div>
@@ -630,17 +632,17 @@ export default function SealDocument() {
                   <>
                     <div className="bg-white border border-[#E5E5E5] rounded-3xl p-6 space-y-4">
                       <p className="text-[10px] font-mono tracking-widest uppercase text-[#999]">
-                        Document summary
+                        {t("seal.summary")}
                       </p>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div className="col-span-2">
-                          <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">File</p>
+                          <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">{t("create.fileLabel")}</p>
                           <p className="font-medium truncate">
                             {fileName} <span className="text-[#999] font-mono text-xs">· {prettySize(fileSize)}</span>
                           </p>
                         </div>
                         <div className="col-span-2">
-                          <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">Unlocks</p>
+                          <p className="text-[10px] font-mono text-[#BBB] uppercase mb-0.5">{t("create.unlocksLabel")}</p>
                           <p className="font-medium">
                             {new Date(targetDatetime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
                           </p>
@@ -655,9 +657,7 @@ export default function SealDocument() {
                     <div className="flex items-start gap-2 p-4 rounded-2xl bg-amber-50 border border-amber-200">
                       <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
                       <p className="text-xs text-amber-800 leading-relaxed">
-                        <strong>Your .capsule file is your only copy.</strong> It holds the encrypted
-                        PDF and the sealed key. We never receive them. If you lose it, the document
-                        cannot be recovered.
+                        <Trans i18nKey="seal.warnOnlyCopy" components={{ b: <strong /> }} />
                       </p>
                     </div>
 
@@ -680,7 +680,7 @@ export default function SealDocument() {
                       ) : (
                         <>
                           <Lock className="w-4 h-4" />
-                          Encrypt &amp; Seal
+                          {t("seal.encryptSeal")}
                         </>
                       )}
                     </button>
@@ -698,7 +698,7 @@ export default function SealDocument() {
                           <CheckCircle2 className="w-4 h-4 text-green-500" />
                         </div>
                         <div>
-                          <p className="text-sm font-bold">Document sealed</p>
+                          <p className="text-sm font-bold">{t("seal.sealedOk")}</p>
                           <p className="text-[10px] font-mono text-[#999]">{predictionId?.slice(0, 8)}…</p>
                         </div>
                       </div>
@@ -708,18 +708,18 @@ export default function SealDocument() {
                           <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 border border-green-200">
                             <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
                             <span className="text-[10px] font-mono text-green-700 uppercase leading-tight">
-                              Bitcoin{otsBitcoinBlock ? ` #${otsBitcoinBlock.toLocaleString()}` : " Anchored"}
+                              {otsBitcoinBlock ? `Bitcoin #${otsBitcoinBlock.toLocaleString()}` : t("create.bitcoinAnchored")}
                             </span>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
                             <Clock className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-                            <span className="text-[10px] font-mono text-amber-700 uppercase">OTS Pending</span>
+                            <span className="text-[10px] font-mono text-amber-700 uppercase">{t("create.otsPending")}</span>
                           </div>
                         )}
                         <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 border border-green-100">
                           <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
-                          <span className="text-[10px] font-mono text-green-700 uppercase">TSA Signed</span>
+                          <span className="text-[10px] font-mono text-green-700 uppercase">{t("create.tsaSigned")}</span>
                         </div>
                       </div>
                     </div>
@@ -727,14 +727,11 @@ export default function SealDocument() {
                     <div className="flex items-start gap-2 p-4 rounded-2xl bg-amber-50 border border-amber-200">
                       <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
                       <p className="text-xs text-amber-800 leading-relaxed">
-                        {sealed.pdf_encryption === "qpdf-aes256" ? (
-                          <>Your sealed <strong>PDF</strong> was downloaded. Store it safely — it's your only
-                          copy, and it self-unlocks here on{" "}
-                          {new Date(targetDatetime).toLocaleDateString(undefined, { dateStyle: "long" })}.</>
-                        ) : (
-                          <>Your capsule was downloaded. Store it safely — it's your only key to unlock this
-                          PDF on {new Date(targetDatetime).toLocaleDateString(undefined, { dateStyle: "long" })}.</>
-                        )}
+                        <Trans
+                          i18nKey={sealed.pdf_encryption === "qpdf-aes256" ? "seal.downloadedPdf" : "seal.downloadedCapsule"}
+                          components={{ b: <strong /> }}
+                          values={{ date: new Date(targetDatetime).toLocaleDateString(undefined, { dateStyle: "long" }) }}
+                        />
                       </p>
                     </div>
 
@@ -750,7 +747,7 @@ export default function SealDocument() {
                       className="w-full h-12 rounded-full border border-[#E5E5E5] bg-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#FAFAFA] transition-colors"
                     >
                       <Download className="w-4 h-4" />
-                      {sealed.pdf_encryption === "qpdf-aes256" ? "Re-download sealed PDF" : "Re-download capsule"}
+                      {sealed.pdf_encryption === "qpdf-aes256" ? t("seal.redownloadPdf") : t("create.redownload")}
                     </button>
 
                     <button
@@ -776,12 +773,12 @@ export default function SealDocument() {
                       className="w-full h-12 rounded-full border border-[#6366F1]/30 bg-[#6366F1]/5 text-[#6366F1] text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#6366F1]/10 transition-colors"
                     >
                       <FileText className="w-4 h-4" />
-                      Download Certificate (PDF)
+                      {t("create.downloadCert")}
                     </button>
 
                     <Link href="/">
                       <button className="w-full h-12 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] transition-colors">
-                        Back to home
+                        {t("create.backHome")}
                         <ArrowRight className="w-4 h-4" />
                       </button>
                     </Link>
@@ -800,16 +797,16 @@ export default function SealDocument() {
                   className="h-11 px-5 rounded-full border border-[#E5E5E5] text-sm flex items-center gap-1.5 hover:bg-[#F5F5F5] transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4" />
-                  Back
+                  {t("common.back")}
                 </button>
               )}
-              {step < STEPS.length - 1 && (
+              {step < STEP_KEYS.length - 1 && (
                 <button
                   onClick={() => setStep((s) => s + 1)}
                   disabled={!canProceed}
                   className="flex-1 h-11 rounded-full bg-[#111111] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#222] transition-colors disabled:opacity-40"
                 >
-                  Continue
+                  {t("create.continue")}
                   <ArrowRight className="w-4 h-4" />
                 </button>
               )}

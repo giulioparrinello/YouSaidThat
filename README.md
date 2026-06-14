@@ -42,6 +42,8 @@ No keys, no plaintext, no content ever leaves your device.
 - **RSA-PSS attestation** — sign and publicly claim authorship after unlock
 - **PDF certificates** — downloadable proof with embedded blockchain evidence
 - **Community feed** — browse public predictions by topic and year
+- **Verified posts** — official posts carry a blue badge (server-set, gated by `ADMIN_SECRET`); the flag can't be forged via the post body or the author name
+- **Bilingual UI** — English by default on the bare path; an optional Italian translation lives under a `/it` URL prefix (e.g. `/it/create`)
 - **Rate limiting + Helmet + HSTS** — hardened API endpoints
 
 ---
@@ -72,7 +74,7 @@ graph LR
 
 | Layer | Tech |
 |---|---|
-| Frontend | React 19, TypeScript, Vite 7, TailwindCSS v4, Radix UI, Framer Motion, GSAP |
+| Frontend | React 19, TypeScript, Vite 7, TailwindCSS v4, Radix UI, Framer Motion, GSAP, i18next (EN/IT) |
 | Backend | Express 5, Node.js 20, TypeScript, tsx (dev), esbuild (prod) |
 | Database | PostgreSQL via Drizzle ORM (Supabase) |
 | Timelock | tlock-js v0.9.0, drand quicknet (BLS12-381 IBE) |
