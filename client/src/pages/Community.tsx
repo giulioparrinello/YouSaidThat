@@ -17,7 +17,7 @@ import {
 import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { api, type PublicPrediction } from "@/lib/api";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { VerifiedAuthor } from "@/components/VerifiedBadge";
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
@@ -77,6 +77,15 @@ function PredictionCard({
               {isSealed ? t("community.sealedPrediction") : t("community.proofOfExistence")}
             </p>
             <p className="text-[10px] font-mono text-[#999]">{dateLabel}</p>
+            {prediction.author_name && (
+              <p className="flex items-center gap-1 text-[10px] font-mono text-[#6366F1] truncate mt-0.5">
+                {prediction.verified ? (
+                  <VerifiedAuthor name={prediction.author_name} />
+                ) : (
+                  prediction.author_name
+                )}
+              </p>
+            )}
           </div>
         </div>
 
@@ -283,7 +292,6 @@ export default function Community() {
               {t("community.newPrediction")}
             </span>
           </Link>
-          <LanguageSwitcher />
         </div>
       </nav>
 

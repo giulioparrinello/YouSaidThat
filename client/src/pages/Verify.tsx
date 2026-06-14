@@ -19,7 +19,6 @@ import { useTranslation, Trans } from "react-i18next";
 import { api, type VerifyResponse } from "@/lib/api";
 import { loadCapsule } from "@/lib/crypto";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 type Tab = "hash" | "capsule";
 
@@ -121,7 +120,6 @@ export default function Verify() {
               {t("verify.createLink")}
             </span>
           </Link>
-          <LanguageSwitcher />
         </div>
       </nav>
 

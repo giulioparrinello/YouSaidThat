@@ -25,6 +25,7 @@ import i18next from "i18next";
 import TextType from "@/components/TextType";
 import Aurora from "@/components/Aurora";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { VerifiedAuthor } from "@/components/VerifiedBadge";
 import { api, type PublicPrediction } from "@/lib/api";
 
 // ─── Voter fingerprint ────────────────────────────────────────────────────────
@@ -282,7 +283,7 @@ function PredictionCard({ p, fingerprint }: { p: PublicPrediction; fingerprint: 
           {p.author_name ? (
             <span className="flex items-center gap-1 text-[10px] font-mono text-[#6366F1] truncate">
               <User className="w-2.5 h-2.5 shrink-0" />
-              {p.author_name}
+              {p.verified ? <VerifiedAuthor name={p.author_name} /> : p.author_name}
             </span>
           ) : (
             <span className="text-[10px] font-mono text-[#CCC]">
@@ -518,7 +519,6 @@ export default function Home() {
                 {t("common.nav.create")}
               </button>
             </Link>
-            <LanguageSwitcher />
           </motion.div>
         </nav>
 
@@ -956,6 +956,7 @@ export default function Home() {
             <div className="text-[10px] font-mono opacity-50 uppercase tracking-widest">
               Build: PANKO000 · Node-EU-Central
             </div>
+            <LanguageSwitcher />
           </div>
         </div>
       </footer>

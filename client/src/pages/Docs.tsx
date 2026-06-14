@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ExternalLink } from "lucide-react";
 
 // ─── Sidebar definition ───────────────────────────────────────────────────────
@@ -880,6 +881,7 @@ curl https://arweave.net/<arweave_tx_id>
             >
               GitHub
             </a>
+            <LanguageSwitcher />
           </div>
         </div>
       </footer>

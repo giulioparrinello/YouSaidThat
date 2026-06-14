@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ExternalLink, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -676,6 +677,7 @@ export default function SecurityAudit() {
             >
               GitHub
             </a>
+            <LanguageSwitcher />
           </div>
         </div>
       </footer>

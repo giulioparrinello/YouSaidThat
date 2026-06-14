@@ -13,7 +13,6 @@ import {
 import { Link, useRoute } from "wouter";
 import { useTranslation } from "react-i18next";
 import { api, type AttestationPageResponse } from "@/lib/api";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 export default function Attestation() {
   const { t } = useTranslation();
@@ -55,7 +54,6 @@ export default function Attestation() {
               {t("create.verifyLink")}
             </span>
           </Link>
-          <LanguageSwitcher />
         </div>
       </nav>
 

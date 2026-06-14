@@ -33,7 +33,6 @@ import {
 } from "@/lib/pdfCrypto";
 import { api } from "@/lib/api";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 type SealMethod = "qpdf-aes256" | "container";
 
@@ -375,7 +374,6 @@ export default function SealDocument() {
               {t("seal.unlockLink")}
             </span>
           </Link>
-          <LanguageSwitcher />
         </div>
       </nav>
 

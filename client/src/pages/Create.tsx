@@ -32,7 +32,29 @@ import {
 } from "@/lib/crypto";
 import { api } from "@/lib/api";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
+
+// Reveal the admin-secret field only when the author name looks like an attempt
+// to post as "admin" (case / leetspeak / separators / accents insensitive).
+// This merely TRIGGERS the field — actual verification still requires the
+// correct ADMIN_SECRET, validated server-side. So only the secret holder can
+// ever produce a verified post.
+function looksLikeAdmin(name: string): boolean {
+  const normalized = name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "") // strip diacritics
+    .replace(/[4@]/g, "a")
+    .replace(/[1!|]/g, "i")
+    .replace(/0/g, "o")
+    .replace(/3/g, "e")
+    .replace(/[5$]/g, "s")
+    .replace(/7/g, "t")
+    .replace(/[^a-z]/g, ""); // drop spaces / punctuation / separators
+  return /(admin|amministrat|administrat|sysadmin|superuser|moderator|official|verified|staff|giulio|parrinello)/.test(
+    normalized,
+  );
+}
 
 type Mode = "proof_of_existence" | "sealed_prediction";
 type Visibility = "cleartext" | "encrypted";
@@ -177,6 +199,30 @@ export default function Create() {
   const [authorName, setAuthorName] = useState("");
   const [email, setEmail] = useState("");
   const [isPublic, setIsPublic] = useState(false);
+
+  // Verified/official posting (admin only). The admin-secret field appears only
+  // when the author name looks like "admin" (see looksLikeAdmin). The secret is
+  // validated against the existing admin endpoint, then sent as a header on
+  // register; the server is the only authority on the "verified" flag.
+  const [adminSecret, setAdminSecret] = useState("");
+  const [verifiedAuthed, setVerifiedAuthed] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
+  const [verifyChecking, setVerifyChecking] = useState(false);
+
+  const validateAdminSecret = async () => {
+    if (!adminSecret.trim()) return;
+    setVerifyChecking(true);
+    setVerifyError("");
+    try {
+      await api.admin.getStats(adminSecret);
+      setVerifiedAuthed(true);
+    } catch {
+      setVerifiedAuthed(false);
+      setVerifyError(t("create.verifiedInvalid"));
+    } finally {
+      setVerifyChecking(false);
+    }
+  };
 
   // Sealing state
   const [sealing, setSealing] = useState(false);
@@ -327,7 +373,10 @@ export default function Create() {
         }
       }
 
-      const res = await api.registerPrediction(payload);
+      const res = await api.registerPrediction(
+        payload,
+        verifiedAuthed && looksLikeAdmin(authorName) ? adminSecret : undefined,
+      );
       setPredictionId(res.prediction_id);
       setArweaveTxId(res.arweave_tx_id ?? null);
 
@@ -364,7 +413,7 @@ export default function Create() {
       setSealing(false);
       setSealStep("");
     }
-  }, [text, fileHash, inputTab, mode, visibility, targetYear, targetDatetime, poeDatetime, poeHasDate, keywords, authorName, email, isPublic, t]);
+  }, [text, fileHash, inputTab, mode, visibility, targetYear, targetDatetime, poeDatetime, poeHasDate, keywords, authorName, email, isPublic, verifiedAuthed, adminSecret, t]);
 
   // Whether current mode+visibility uses encryption
   const isEncrypted =
@@ -386,7 +435,6 @@ export default function Create() {
               {t("create.verifyLink")}
             </span>
           </Link>
-          <LanguageSwitcher />
         </div>
       </nav>
 
@@ -853,7 +901,14 @@ export default function Create() {
                   <input
                     type="text"
                     value={authorName}
-                    onChange={(e) => setAuthorName(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setAuthorName(v);
+                      if (!looksLikeAdmin(v)) {
+                        setVerifiedAuthed(false);
+                        setVerifyError("");
+                      }
+                    }}
                     placeholder={t("create.authorPlaceholder")}
                     maxLength={100}
                     className="w-full h-11 rounded-full border border-[#E5E5E5] bg-white px-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 focus:border-[#6366F1] transition-all"
@@ -862,6 +917,59 @@ export default function Create() {
                     {t("create.authorNote")}
                   </p>
                 </div>
+
+                {/* Verified / official post — revealed only when the author name
+                    looks like "admin"; still gated by the ADMIN_SECRET server-side. */}
+                {looksLikeAdmin(authorName) && (
+                  <div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-mono uppercase tracking-widest text-[#999] flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-[#1D9BF0]" />
+                        {t("create.postAsVerified")}
+                      </label>
+                      {verifiedAuthed ? (
+                        <div className="flex items-center gap-1.5 text-[12px] text-[#1D9BF0]">
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          <span className="flex items-center gap-1">
+                            {t("create.verifiedOk")}
+                            <VerifiedBadge />
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={adminSecret}
+                            onChange={(e) => {
+                              setAdminSecret(e.target.value);
+                              setVerifyError("");
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                validateAdminSecret();
+                              }
+                            }}
+                            placeholder={t("create.verifiedSecretPlaceholder")}
+                            className="flex-1 h-10 rounded-full border border-[#E5E5E5] bg-white px-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#1D9BF0]/20 focus:border-[#1D9BF0] transition-all"
+                          />
+                          <button
+                            type="button"
+                            onClick={validateAdminSecret}
+                            disabled={!adminSecret.trim() || verifyChecking}
+                            className="h-10 px-4 rounded-full bg-[#1D9BF0] text-white text-xs font-medium disabled:opacity-40 hover:bg-[#1a8cd8] transition-colors flex items-center gap-1.5"
+                          >
+                            {verifyChecking && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                            {t("verify.verifyBtn")}
+                          </button>
+                        </div>
+                      )}
+                      {verifyError && (
+                        <p className="text-[11px] text-red-600 ml-1">{verifyError}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-xs font-mono uppercase tracking-widest text-[#999] mb-2 block">

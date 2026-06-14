@@ -20,7 +20,7 @@ import {
 import { Link, useRoute } from "wouter";
 import { useTranslation } from "react-i18next";
 import { api, type PredictionDetailResponse } from "@/lib/api";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { VerifiedAuthor } from "@/components/VerifiedBadge";
 
 function Row({
   icon,
@@ -122,7 +122,6 @@ export default function Prediction() {
               {t("common.nav.verify")}
             </span>
           </Link>
-          <LanguageSwitcher />
         </div>
       </nav>
 
@@ -232,7 +231,13 @@ export default function Prediction() {
                 {/* Author */}
                 {data.author_name && (
                   <Row icon={<User className="w-3.5 h-3.5 text-[#999]" />} label={t("prediction.author")}>
-                    <p className="text-sm text-[#444]">{data.author_name}</p>
+                    <p className="text-sm text-[#444] flex items-center gap-1">
+                      {data.verified ? (
+                        <VerifiedAuthor name={data.author_name} />
+                      ) : (
+                        data.author_name
+                      )}
+                    </p>
                   </Row>
                 )}
 

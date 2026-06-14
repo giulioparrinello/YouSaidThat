@@ -32,7 +32,6 @@ import {
 import { decryptPdf, extractSeal, stripSeal, isPdfBytes } from "@/lib/pdfCrypto";
 import { generateCertificatePdf } from "@/lib/generateCertificate";
 import { api } from "@/lib/api";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 export default function UnlockPage() {
   const { t } = useTranslation();
@@ -331,7 +330,6 @@ export default function UnlockPage() {
               {t("create.verifyLink")}
             </span>
           </Link>
-          <LanguageSwitcher />
         </div>
       </nav>
 

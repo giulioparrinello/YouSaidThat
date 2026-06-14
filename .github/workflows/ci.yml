@@ -28,7 +28,10 @@ jobs:
       - name: Build (client + server bundle)
         run: npm run build
 
-      # Fails the pipeline if any high/critical vulnerability appears.
-      # Known moderate/low residuals (opentimestamps/request chain) are accepted.
+      # Fails the pipeline if any high/critical vulnerability appears in
+      # PRODUCTION dependencies (what actually ships). Dev-only chains (vite,
+      # tsx, drizzle-kit via esbuild advisories) are excluded: they never run
+      # in production. Known moderate/low residuals (opentimestamps/request
+      # chain) are accepted.
       - name: Dependency audit gate
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
