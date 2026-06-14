@@ -661,10 +661,11 @@ curl https://arweave.net/<arweave_tx_id>
             description="Registers a SHA-256 hash, submits it to OTS Bitcoin calendars, and issues an RFC 3161 TSA token. For cleartext Proof of Existence, the content is uploaded to Arweave asynchronously."
             request={`{
   "hash": "a3f9e2b1...",            // SHA-256 hex, 64 chars, required
-  "mode": "sealed_prediction",      // "proof_of_existence" | "sealed_prediction"
-  "target_year": 2030,              // integer, current year ≤ year ≤ current+50
+  "mode": "sealed_prediction",      // "proof_of_existence" | "sealed_prediction" (required)
+  "target_year": 2030,              // optional, current year ≤ year ≤ current+50
+  "author_name": "Jane Doe",        // optional, public display name, max 100
   "keywords": ["tech", "ai"],       // optional, max 3, max 30 chars each
-  "email": "user@example.com",       // optional, for future delivery reminder
+  "email": "user@example.com",       // optional, raw email for a delivery reminder
   "is_public": false,               // whether to include in public feed
   "content": "...",                 // proof_of_existence cleartext only, max 10000 chars
   "content_encrypted": "...",       // proof_of_existence encrypted only, max 50000 chars
@@ -688,25 +689,34 @@ curl https://arweave.net/<arweave_tx_id>
           <ApiCard
             method="GET"
             path="/api/predictions/public"
-            description="Returns paginated public predictions (proof_of_existence with is_public=true). Supports filtering by keyword and year."
+            description="Returns paginated public predictions (is_public=true). Supports filtering by keyword and year, and an optional voter fingerprint to populate my_vote."
             request={`// Query parameters (all optional):
 ?page=1
-&limit=20          // max 50
-&keyword=tech      // filter by keyword
-&year=2030         // filter by target year`}
+&limit=20             // max 50
+&keyword=tech         // filter by keyword
+&year=2030            // filter by target year
+&fingerprint=<uuid>   // anonymous voter id → populates my_vote`}
             response={`{
   "predictions": [
     {
       "id": "f47ac10b...",
       "hash_preview": "a3f9e2b1",   // first 8 chars of hash
       "target_year": 2030,
+      "target_datetime": null,
+      "author_name": "Jane Doe",    // null if none
+      "verified": false,            // true for official/verified posts
       "keywords": ["tech"],
       "mode": "proof_of_existence",
       "ots_status": "confirmed",
       "created_at": "2026-03-12T10:23:45.000Z",
+      "timestamp_utc": "2026-03-12T10:23:45.000Z",
       "content": "...",             // present for cleartext mode
       "arweave_tx_id": "xyz...",
-      "arweave_status": "confirmed"
+      "arweave_status": "confirmed",
+      "likes_count": 12,
+      "dislikes_count": 1,
+      "my_vote": null,              // "like" | "dislike" | null
+      "is_retroactive": false       // sealed prediction later revealed
     }
   ],
   "total": 412,
@@ -726,6 +736,9 @@ curl https://arweave.net/<arweave_tx_id>
   "hash": "a3f9e2b1...",
   "mode": "proof_of_existence",
   "target_year": 2030,
+  "target_datetime": null,
+  "author_name": "Jane Doe",         // null if none
+  "verified": false,                 // true for official/verified posts
   "keywords": ["tech"],
   "ots_confirmed": true,
   "ots_status": "confirmed",

@@ -4,8 +4,11 @@ info:
   description: |
     Privacy-first predictive notarization API.
 
-    The server stores SHA-256 hashes and cryptographic proofs only — never plaintext
-    content, private keys, or raw email addresses. All encryption happens client-side.
+    The server stores SHA-256 hashes and cryptographic proofs. Sealed Predictions are
+    encrypted client-side — the server never sees their plaintext or any private keys.
+    For **cleartext** Proof of Existence the content is stored and published to Arweave
+    by design. Email addresses, if provided for delivery reminders, are stored in
+    plaintext on explicit opt-in.
 
     **Rate limits** (per IP):
     - `POST /api/predictions/register` and `POST /api/waitlist`: 10 req/min
@@ -111,6 +114,12 @@ paths:
           in: query
           schema:
             type: integer
+        - name: fingerprint
+          in: query
+          description: Optional anonymous voter UUID (localStorage); populates my_vote
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: Paginated public predictions
@@ -250,14 +259,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  id:
-                    type: string
-                    format: uuid
+                  ok:
+                    type: boolean
                   is_public:
                     type: boolean
-                  content:
-                    type: string
-                    nullable: true
         "400":
           description: Content hash mismatch or validation error
           content:
@@ -355,24 +360,10 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
-  /api/admin/predictions:
-    get:
-      tags: [admin]
-      summary: List all predictions (admin)
-      security:
-        - AdminSecret: []
-      responses:
-        "200":
-          description: All predictions
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "503":
-          $ref: "#/components/responses/AdminNotConfigured"
-
   /api/admin/stats:
     get:
       tags: [admin]
-      summary: Platform statistics (admin)
+      summary: Platform statistics + Arweave wallet (admin)
       security:
         - AdminSecret: []
       responses:
@@ -383,18 +374,126 @@ paths:
               schema:
                 type: object
                 properties:
-                  total_predictions:
+                  total:
                     type: integer
-                  ots_confirmed:
-                    type: integer
-                  ots_pending:
-                    type: integer
-                  total_attestations:
-                    type: integer
-                  waitlist_count:
+                  otsByStatus:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  arweaveByStatus:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  arweaveBalance:
+                    type: object
+                    properties:
+                      ar:
+                        type: string
+                      winston:
+                        type: string
+                  arweaveAddress:
+                    type: string
+                    nullable: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/AdminNotConfigured"
+
+  /api/admin/arweave-balance:
+    get:
+      tags: [admin]
+      summary: Arweave wallet balance (admin)
+      security:
+        - AdminSecret: []
+      responses:
+        "200":
+          description: Wallet balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ar:
+                    type: string
+                  winston:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/admin/pending-arweave:
+    get:
+      tags: [admin]
+      summary: Predictions with pending/failed Arweave uploads (admin)
+      security:
+        - AdminSecret: []
+      responses:
+        "200":
+          description: Pending/failed uploads
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  predictions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        hash:
+                          type: string
+                          description: First 8 hex chars + ellipsis
+                        mode:
+                          type: string
+                        target_year:
+                          type: integer
+                          nullable: true
+                        arweave_status:
+                          type: string
+                          enum: [pending, failed]
+                        created_at:
+                          type: string
+                          format: date-time
+                  total:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/admin/retry-arweave/{id}:
+    post:
+      tags: [admin]
+      summary: Retry an Arweave upload (admin)
+      security:
+        - AdminSecret: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Retry result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  arweave_tx_id:
+                    type: string
+                    nullable: true
+                  message:
+                    type: string
+                    nullable: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/cron/ots-poll:
     get:
@@ -457,7 +556,7 @@ components:
   schemas:
     RegisterRequest:
       type: object
-      required: [hash, mode, target_year]
+      required: [hash, mode]
       properties:
         hash:
           type: string
@@ -468,23 +567,42 @@ components:
           enum: [proof_of_existence, sealed_prediction]
         target_year:
           type: integer
-          minimum: 2026
-          maximum: 2076
-          description: Year the prediction is sealed until
+          nullable: true
+          description: >-
+            Optional. Year the prediction is gated until. Range:
+            current year ≤ year ≤ current year + 50.
+        author_name:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: Optional public display name. Sanitized server-side.
         keywords:
           type: array
           items:
             type: string
             maxLength: 30
+            pattern: "^[a-zA-Z0-9 -]+$"
           maxItems: 3
-        email_hash:
+        email:
           type: string
-          pattern: "^[a-f0-9]{64}$"
+          format: email
           nullable: true
-          description: SHA-256 of lowercase-trimmed email — never the raw address
+          description: >-
+            Optional. Raw email for a future delivery reminder. Stored in
+            plaintext on explicit opt-in (a confirmation email is sent first).
         is_public:
           type: boolean
           default: false
+        content:
+          type: string
+          maxLength: 10000
+          nullable: true
+          description: Cleartext content (proof_of_existence cleartext sub-mode only)
+        content_encrypted:
+          type: string
+          maxLength: 50000
+          nullable: true
+          description: Ciphertext (proof_of_existence encrypted sub-mode only)
         drand_round:
           type: integer
           format: int64
@@ -504,15 +622,26 @@ components:
           format: uuid
         hash:
           type: string
+        mode:
+          type: string
+          enum: [proof_of_existence, sealed_prediction]
         ots_status:
           type: string
           enum: [pending, confirmed, failed]
         tsa_token:
           type: string
-          description: Base64-encoded RFC 3161 TSA response token
+          nullable: true
+          description: Base64-encoded RFC 3161 TSA response token (null if all providers fail)
         created_at:
           type: string
           format: date-time
+        arweave_tx_id:
+          type: string
+          nullable: true
+          description: Arweave transaction ID (populated async for cleartext content)
+        arweave_status:
+          type: string
+          enum: [none, pending, confirmed, failed]
 
     PublicPrediction:
       type: object
@@ -526,20 +655,57 @@ components:
           example: "a3f9c2d1"
         target_year:
           type: integer
+          nullable: true
+        target_datetime:
+          type: string
+          format: date-time
+          nullable: true
+        author_name:
+          type: string
+          nullable: true
+        verified:
+          type: boolean
+          description: true for official/verified posts (shown with a badge)
         keywords:
           type: array
+          nullable: true
           items:
             type: string
         mode:
           type: string
           enum: [proof_of_existence, sealed_prediction]
-        content:
+        ots_status:
           type: string
-          nullable: true
-          description: Revealed content (only present after /reveal)
+          enum: [pending, confirmed, failed]
         created_at:
           type: string
           format: date-time
+        timestamp_utc:
+          type: string
+          format: date-time
+          nullable: true
+        content:
+          type: string
+          nullable: true
+          description: Cleartext content (present for cleartext Proof of Existence)
+        arweave_tx_id:
+          type: string
+          nullable: true
+        arweave_status:
+          type: string
+          enum: [none, pending, confirmed, failed]
+        likes_count:
+          type: integer
+        dislikes_count:
+          type: integer
+        my_vote:
+          type: string
+          enum: [like, dislike]
+          nullable: true
+          description: Caller's vote, when a fingerprint query param is supplied
+        is_retroactive:
+          type: boolean
+          description: Sealed prediction later revealed with content + TSA token
 
     VerifyFound:
       type: object
@@ -557,12 +723,27 @@ components:
           enum: [proof_of_existence, sealed_prediction]
         target_year:
           type: integer
+          nullable: true
+        target_datetime:
+          type: string
+          format: date-time
+          nullable: true
+        author_name:
+          type: string
+          nullable: true
+        verified:
+          type: boolean
+          description: true for official/verified posts
         keywords:
           type: array
+          nullable: true
           items:
             type: string
         ots_confirmed:
           type: boolean
+        ots_status:
+          type: string
+          enum: [pending, confirmed, failed]
         bitcoin_block:
           type: integer
           nullable: true
@@ -577,6 +758,16 @@ components:
           type: string
           nullable: true
           description: Base64 OTS proof blob
+        content:
+          type: string
+          nullable: true
+          description: Cleartext content (present for cleartext Proof of Existence)
+        arweave_tx_id:
+          type: string
+          nullable: true
+        arweave_status:
+          type: string
+          enum: [none, pending, confirmed, failed]
 
     VerifyNotFound:
       type: object
@@ -598,18 +789,51 @@ components:
           enum: [proof_of_existence, sealed_prediction]
         target_year:
           type: integer
+          nullable: true
+        target_datetime:
+          type: string
+          format: date-time
+          nullable: true
+        author_name:
+          type: string
+          nullable: true
+        verified:
+          type: boolean
+          description: true for official/verified posts
         keywords:
           type: array
+          nullable: true
           items:
             type: string
         ots_status:
           type: string
           enum: [pending, confirmed, failed]
+        bitcoin_block:
+          type: integer
+          nullable: true
+        timestamp_utc:
+          type: string
+          format: date-time
+          nullable: true
+        tsa_token:
+          type: string
+          nullable: true
+        ots_proof:
+          type: string
+          nullable: true
         is_public:
           type: boolean
         created_at:
           type: string
           format: date-time
+        content:
+          type: string
+          nullable: true
+          description: Present only when is_public is true
+        arweave_tx_id:
+          type: string
+          nullable: true
+          description: Present only when is_public is true
 
     ClaimRequest:
       type: object
@@ -654,31 +878,49 @@ components:
     AttestationData:
       type: object
       properties:
-        id:
-          type: string
-          format: uuid
-        prediction_id:
+        attestation_id:
           type: string
           format: uuid
         display_name:
           type: string
-        public_key:
+        attestation_url:
           type: string
-        hash:
-          type: string
-        target_year:
-          type: integer
-        ots_confirmed:
-          type: boolean
-        bitcoin_block:
-          type: integer
+          format: uri
           nullable: true
-        timestamp_utc:
-          type: string
-          format: date-time
         created_at:
           type: string
           format: date-time
+        prediction:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            hash:
+              type: string
+            mode:
+              type: string
+              enum: [proof_of_existence, sealed_prediction]
+            target_year:
+              type: integer
+              nullable: true
+            keywords:
+              type: array
+              nullable: true
+              items:
+                type: string
+            ots_status:
+              type: string
+              enum: [pending, confirmed, failed]
+            bitcoin_block:
+              type: integer
+              nullable: true
+            timestamp_utc:
+              type: string
+              format: date-time
+            tsa_token:
+              type: string
+              nullable: true
 
     Error:
       type: object
