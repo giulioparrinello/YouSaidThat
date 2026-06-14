@@ -373,10 +373,12 @@ export default function Create() {
         }
       }
 
-      const res = await api.registerPrediction(
-        payload,
-        verifiedAuthed && looksLikeAdmin(authorName) ? adminSecret : undefined,
-      );
+      // Send the admin secret whenever an admin-looking name + a secret are
+      // present (no separate "Verify" click required). The server is the sole
+      // authority: a wrong secret simply yields a non-verified post.
+      const secretToSend =
+        looksLikeAdmin(authorName) && adminSecret.trim() ? adminSecret.trim() : undefined;
+      const res = await api.registerPrediction(payload, secretToSend);
       setPredictionId(res.prediction_id);
       setArweaveTxId(res.arweave_tx_id ?? null);
 
