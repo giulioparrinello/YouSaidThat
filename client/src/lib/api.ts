@@ -201,6 +201,7 @@ export const api = {
       content_encrypted?: string;
       drand_round?: number;
       target_datetime?: string;
+      public_key?: string;
     },
     // When present, authorizes posting as a verified/official account. The
     // server validates it (timing-safe) and never trusts a client-set flag.
@@ -264,7 +265,7 @@ export const api = {
 
   revealPrediction: (
     predictionId: string,
-    body: { content?: string; is_public: boolean }
+    body: { content: string; is_public: boolean }
   ) =>
     req<{ ok: boolean; is_public: boolean }>(
       `/api/predictions/${predictionId}/reveal`,

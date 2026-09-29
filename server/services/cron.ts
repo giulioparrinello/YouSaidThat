@@ -102,7 +102,8 @@ export async function pollOtsStatus(): Promise<number> {
   return processed;
 }
 
-async function sendDueReminders(): Promise<void> {
+export async function sendDueReminders(): Promise<number> {
+  let sent = 0;
   try {
     const due = await storage.getPendingEmailsDue();
     console.log(`[cron] Sending reminders to ${due.length} recipients`);
@@ -117,6 +118,7 @@ async function sendDueReminders(): Promise<void> {
 
       if (ok) {
         await storage.markEmailSent(entry.id);
+        sent++;
         console.log(`[cron] Reminder sent for email_queue ${entry.id}`);
       } else {
         await storage.markEmailFailed(entry.id);
@@ -126,4 +128,5 @@ async function sendDueReminders(): Promise<void> {
   } catch (err) {
     console.error("[cron] Email reminder error:", err);
   }
+  return sent;
 }

@@ -227,8 +227,9 @@ paths:
       summary: Reveal content after unlock
       description: |
         Called after the user successfully decrypts their .capsule locally.
-        If `content` is provided, the server verifies SHA-256(content) === stored hash.
-        Setting `is_public: true` publishes the prediction to the community feed.
+        `content` is required: the server verifies SHA-256(content) === stored hash,
+        which is the proof that the caller is the author. Setting `is_public: true`
+        publishes the prediction to the community feed; `false` unpublishes it.
       parameters:
         - name: id
           in: path
@@ -242,11 +243,12 @@ paths:
           application/json:
             schema:
               type: object
+              required: [content, is_public]
               properties:
                 content:
                   type: string
+                  minLength: 1
                   maxLength: 10000
-                  nullable: true
                   description: Plaintext to store (SHA-256 must match stored hash)
                 is_public:
                   type: boolean
@@ -282,8 +284,11 @@ paths:
         Submit a public identity claim for a prediction. The server verifies:
         1. The prediction exists
         2. Current year >= target_year (server-side year gate)
-        3. RSA-PSS signature is valid: verify(signature, hash, public_key)
-        4. No existing attestation for this prediction (one claim per hash)
+        3. If a `public_key` was registered at seal time, the submitted key must
+           match it (403 otherwise). Legacy predictions without a stored key
+           accept any valid signature.
+        4. RSA-PSS signature is valid: verify(signature, hash, public_key)
+        5. No existing attestation for this prediction (one claim per hash)
       requestBody:
         required: true
         content:
@@ -519,6 +524,30 @@ paths:
         "503":
           $ref: "#/components/responses/CronNotConfigured"
 
+  /api/cron/send-reminders:
+    get:
+      tags: [cron]
+      summary: Send due unlock reminder emails
+      description: Called by Supabase pg_cron every hour. Sends confirmed reminders whose notify_at has passed.
+      security:
+        - CronBearer: []
+      responses:
+        "200":
+          description: Reminders processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  sent:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/CronNotConfigured"
+
   /api/cron/arweave-retry:
     get:
       tags: [cron]
@@ -613,6 +642,13 @@ components:
           format: date-time
           nullable: true
           description: Exact unlock datetime (sealed_prediction only)
+        public_key:
+          type: string
+          maxLength: 5000
+          nullable: true
+          description: |
+            RSA-PSS public key (PEM, SPKI). When provided, only a signature from
+            the matching private key can later claim authorship.
 
     RegisterResponse:
       type: object

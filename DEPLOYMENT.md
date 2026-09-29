@@ -22,7 +22,11 @@ Step-by-step instructions for deploying YouSaidThat on Vercel + Supabase.
    ```bash
    DATABASE_URL=<your-supabase-url> npm run db:push
    ```
-4. Verify the tables exist in the Supabase **Table Editor**: `predictions`, `attestations`, `email_queue`, `waitlist`.
+4. Verify the tables exist in the Supabase **Table Editor**: `predictions`, `attestations`, `email_queue`, `waitlist`, `prediction_votes`.
+5. Run [`sql/2026-09_security_hardening.sql`](./sql/2026-09_security_hardening.sql) in the Supabase **SQL editor**. It enables Row Level Security on every table and revokes the `anon`/`authenticated` grants, so Supabase's public Data API cannot read or write the tables (the server uses the `postgres` role, which bypasses RLS). It is idempotent.
+6. Optional but recommended: the app never uses Supabase's REST/GraphQL Data API, so you can turn it off entirely under **Project Settings → Data API**.
+
+> RLS is also declared in `shared/schema.ts` (`.enableRLS()`), so `npm run db:push` keeps it on. Before this was declared, every `db:push` silently disabled RLS again.
 
 ---
 
@@ -113,6 +117,18 @@ SELECT cron.schedule(
   $$
 );
 
+-- Unlock reminder emails every hour (node-cron does not run on Vercel)
+SELECT cron.schedule(
+  'send-reminders',
+  '15 * * * *',
+  $$
+    SELECT net.http_get(
+      'https://yousaidthat.org/api/cron/send-reminders',
+      headers := '{"Authorization": "Bearer YOUR_CRON_SECRET"}'::jsonb
+    );
+  $$
+);
+
 -- Arweave retry every hour
 SELECT cron.schedule(
   'arweave-retry',
@@ -141,6 +157,7 @@ Run these after every production deploy:
 - [ ] Trigger cron manually: `GET /api/cron/ots-poll` with `Authorization: Bearer <CRON_SECRET>`
 - [ ] Send a test waitlist email (requires verified Resend domain)
 - [ ] Check Supabase table has new rows in `predictions` and `email_queue`
+- [ ] RLS still on: `SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public';` → all `true`
 
 ---
 

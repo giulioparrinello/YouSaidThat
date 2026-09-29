@@ -138,6 +138,7 @@ vi.mock("../server/services/email", () => ({
 
 vi.mock("../server/services/cron", () => ({
   pollOtsStatus: vi.fn(async () => 0),
+  sendDueReminders: vi.fn(async () => 0),
   startCronJobs: vi.fn(),
 }));
 
@@ -285,6 +286,30 @@ describe("GET /api/predictions/verify", () => {
 });
 
 describe("POST /api/predictions/:id/reveal", () => {
+  it("refuses to change visibility without the matching content", async () => {
+    const hash = await hashText("integration test content");
+    const verify = await fetch(`${baseUrl}/api/predictions/verify?hash=${hash}`);
+    const { prediction_id } = await verify.json();
+
+    // Anyone who knows an id must not be able to publish/unpublish it.
+    // Separate client IP so the shared 5/hour limiter doesn't starve other tests.
+    const res = await post(
+      `/api/predictions/${prediction_id}/reveal`,
+      { is_public: false },
+      { "X-Forwarded-For": "203.0.113.10" },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 for a malformed id instead of a 500", async () => {
+    const res = await post(
+      "/api/predictions/not-a-uuid/reveal",
+      { content: "x", is_public: true },
+      { "X-Forwarded-For": "203.0.113.11" },
+    );
+    expect(res.status).toBe(404);
+  });
+
   it("rejects content whose hash does not match", async () => {
     const hash = await hashText("integration test content");
     const verify = await fetch(`${baseUrl}/api/predictions/verify?hash=${hash}`);
@@ -359,6 +384,45 @@ describe("POST /api/predictions/claim", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).message).toContain("Invalid signature");
   });
+
+  it("only accepts the key registered at seal time", async () => {
+    const hash = await hashText("key-bound prediction");
+    const owner = await generateKeyPair();
+    const reg = await post("/api/predictions/register", {
+      hash,
+      mode: "proof_of_existence",
+      is_public: true,
+      public_key: owner.publicKeyPem,
+    });
+    expect(reg.status).toBe(201);
+
+    // A third party signs the public hash with their own fresh key pair
+    const thief = await generateKeyPair();
+    const ip = { "X-Forwarded-For": "203.0.113.12" };
+    const squat = await post(
+      "/api/predictions/claim",
+      {
+        hash,
+        public_key: thief.publicKeyPem,
+        signature: await signHash(hash, thief.privateKeyPem),
+        display_name: "Squatter",
+      },
+      ip,
+    );
+    expect(squat.status).toBe(403);
+
+    const res = await post(
+      "/api/predictions/claim",
+      {
+        hash,
+        public_key: owner.publicKeyPem,
+        signature: await signHash(hash, owner.privateKeyPem),
+        display_name: "Owner",
+      },
+      ip,
+    );
+    expect(res.status).toBe(201);
+  });
 });
 
 describe("admin endpoints", () => {
@@ -398,6 +462,21 @@ describe("cron endpoints", () => {
     });
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
+  });
+});
+
+describe("cron reminders endpoint", () => {
+  it("requires the cron secret", async () => {
+    const res = await fetch(`${baseUrl}/api/cron/send-reminders`);
+    expect(res.status).toBe(401);
+  });
+
+  it("runs with the correct bearer token", async () => {
+    const res = await fetch(`${baseUrl}/api/cron/send-reminders`, {
+      headers: { Authorization: "Bearer test-cron-secret" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, sent: 0 });
   });
 });
 

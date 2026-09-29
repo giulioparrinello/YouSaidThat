@@ -353,6 +353,12 @@ export default function Create() {
         is_public: isPublic,
       };
 
+      // Bind the attestation key to this prediction: only the holder of the
+      // matching private key (stored in the .capsule) can claim authorship.
+      if (publicKeyPem) {
+        payload.public_key = publicKeyPem;
+      }
+
       // tlock fields for sealed_prediction v2
       if (mode === "sealed_prediction" && drandRound && effectiveDatetime) {
         payload.drand_round = drandRound;

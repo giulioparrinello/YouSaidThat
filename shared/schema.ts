@@ -1,6 +1,11 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, boolean, timestamp, uuid, bigint, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, uuid, bigint, varchar, unique } from "drizzle-orm/pg-core";
 import { z } from "zod";
+
+// Every table has RLS enabled with NO policies. The server connects as the
+// table owner (postgres), which bypasses RLS; Supabase's Data API roles (anon,
+// authenticated) are denied everything. Declared here so `drizzle-kit push`
+// keeps it on instead of silently disabling it. See sql/2026-09_security_hardening.sql.
 
 // ─── predictions ──────────────────────────────────────────────────────────────
 export const predictions = pgTable("predictions", {
@@ -30,7 +35,10 @@ export const predictions = pgTable("predictions", {
   // drand timelock fields (sealed_prediction v2 only)
   drand_round: bigint("drand_round", { mode: "number" }),           // drand quicknet round number
   target_datetime: timestamp("target_datetime", { withTimezone: true }), // exact unlock datetime
-});
+  // RSA-PSS public key (PEM) bound at seal time. When set, only a signature
+  // from the matching private key (kept in the user's .capsule) can claim.
+  public_key: text("public_key"),
+}).enableRLS();
 
 // ─── attestations ─────────────────────────────────────────────────────────────
 // Public identity claims after target year is reached.
@@ -44,7 +52,7 @@ export const attestations = pgTable("attestations", {
   signature: text("signature").notNull(),           // base64 RSA-PSS signature of hash
   attestation_url: text("attestation_url"),
   created_at: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}).enableRLS();
 
 // ─── email_queue ──────────────────────────────────────────────────────────────
 // Stores delivery reminders. Email is stored in plain text — the user explicitly
@@ -61,14 +69,14 @@ export const email_queue = pgTable("email_queue", {
   status: text("status").notNull().default("pending"), // pending | sent | failed
   sent_at: timestamp("sent_at", { withTimezone: true }),
   created_at: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}).enableRLS();
 
 // ─── waitlist ──────────────────────────────────────────────────────────────────
 export const waitlist = pgTable("waitlist", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique(),
   created_at: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}).enableRLS();
 
 // ─── prediction_votes ─────────────────────────────────────────────────────────
 // Like/dislike votes on public predictions. voter_fingerprint is a UUID stored
@@ -81,7 +89,10 @@ export const predictionVotes = pgTable("prediction_votes", {
   vote_type: text("vote_type").notNull(),        // 'like' | 'dislike'
   voter_fingerprint: text("voter_fingerprint").notNull(),
   created_at: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  // Required by upsertVote's ON CONFLICT target
+  unique("prediction_votes_prediction_id_voter_fingerprint_unique").on(t.prediction_id, t.voter_fingerprint),
+]).enableRLS();
 
 // ─── TypeScript types ─────────────────────────────────────────────────────────
 export type Prediction = typeof predictions.$inferSelect;
@@ -120,6 +131,8 @@ export const registerPredictionSchema = z.object({
   // drand timelock fields (sealed_prediction v2 only)
   drand_round: z.number().int().positive().optional(),
   target_datetime: z.string().datetime({ offset: true }).optional(),
+  // RSA-PSS public key (PEM) that will be required to claim authorship
+  public_key: z.string().min(1).max(5000).optional(),
 });
 
 export const claimPredictionSchema = z.object({
@@ -134,7 +147,8 @@ export const waitlistSchema = z.object({
 });
 
 export const revealPredictionSchema = z.object({
-  content: z.string().max(10000).optional(),
+  // Required: knowing the plaintext (hash match) is the proof of ownership
+  content: z.string().min(1).max(10000),
   is_public: z.boolean(),
 });
 

@@ -59,6 +59,40 @@ function zodMsg(err: ZodError): string {
   return err.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ");
 }
 
+// Route ids are Postgres uuids: reject anything else up front, otherwise the
+// query throws "invalid input syntax for type uuid" and surfaces as a 500.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(id: unknown): id is string {
+  return typeof id === "string" && UUID_RE.test(id);
+}
+
+// Normalize a PEM for comparison (header/footer and whitespace-insensitive)
+function pemBody(pem: string): string {
+  return pem
+    .replace(/-----BEGIN [^-]+-----/g, "")
+    .replace(/-----END [^-]+-----/g, "")
+    .replace(/\s/g, "");
+}
+
+// Timing-safe Bearer check against CRON_SECRET. Writes the error response
+// itself and returns false when the request must not proceed.
+function checkCronSecret(req: Request, res: Response): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    res.status(503).json({ error: "CRON_SECRET not configured" });
+    return false;
+  }
+  const provided = (req.headers.authorization ?? "").replace("Bearer ", "");
+  if (
+    provided.length !== secret.length ||
+    !timingSafeEqual(Buffer.from(provided), Buffer.from(secret))
+  ) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+
 // Verify RSA-PSS signature: backend mirrors client-side WebCrypto parameters
 async function verifyRsaPssSignature(
   hash: string,
@@ -134,8 +168,12 @@ export async function registerRoutes(
         return res.status(400).json({ message: zodMsg(parsed.error) });
       }
 
-      const { hash, mode, target_year, author_name, keywords, email, is_public, content, content_encrypted, drand_round, target_datetime } =
+      const { hash, mode, target_year, author_name, keywords, email, is_public, content, content_encrypted, drand_round, target_datetime, public_key } =
         parsed.data;
+
+      if (public_key && !public_key.includes("-----BEGIN PUBLIC KEY-----")) {
+        return res.status(400).json({ message: "Invalid public key format" });
+      }
 
       // Idempotent: if this hash was already registered, return existing record
       const existing = await storage.getPredictionByHash(hash);
@@ -202,6 +240,7 @@ export async function registerRoutes(
           arweave_status: hasArweaveContent ? "pending" : "none",
           drand_round: drand_round ?? null,
           target_datetime: target_datetime ? new Date(target_datetime) : null,
+          public_key: public_key ?? null,
         },
         emailData
       );
@@ -372,6 +411,9 @@ export async function registerRoutes(
     "/api/predictions/:id",
     getLimiter,
     async (req: Request, res: Response) => {
+      if (!isUuid(req.params.id)) {
+        return res.status(404).json({ message: "Prediction not found" });
+      }
       const prediction = await storage.getPredictionById(req.params.id as string);
       if (!prediction) {
         return res.status(404).json({ message: "Prediction not found" });
@@ -404,6 +446,9 @@ export async function registerRoutes(
     "/api/predictions/:id/ots-status",
     getLimiter,
     async (req: Request, res: Response) => {
+      if (!isUuid(req.params.id)) {
+        return res.status(404).json({ message: "Prediction not found" });
+      }
       const prediction = await storage.getPredictionById(req.params.id as string);
       if (!prediction) {
         return res.status(404).json({ message: "Prediction not found" });
@@ -420,6 +465,9 @@ export async function registerRoutes(
 
   // POST /api/predictions/:id/reveal
   // Called at unlock time (optional). Verifies content hash, sets is_public.
+  // The plaintext is mandatory: its hash matching the stored one is the only
+  // proof that the caller is the author. Without it, anyone who knows an id
+  // (the community feed exposes them) could publish or unpublish any post.
   app.post(
     "/api/predictions/:id/reveal",
     claimLimiter,
@@ -431,22 +479,28 @@ export async function registerRoutes(
 
       const { content, is_public } = parsed.data;
 
-      const prediction = await storage.getPredictionById(req.params.id as string);
+      if (!isUuid(req.params.id)) {
+        return res.status(404).json({ message: "Prediction not found" });
+      }
+      const prediction = await storage.getPredictionById(req.params.id);
       if (!prediction) {
         return res.status(404).json({ message: "Prediction not found" });
       }
 
-      // If content provided, verify SHA-256 matches the stored hash
-      if (content) {
-        const { subtle } = webcrypto;
-        const hashBuffer = await subtle.digest("SHA-256", new TextEncoder().encode(content));
-        const hashHex = Buffer.from(hashBuffer).toString("hex");
-        if (hashHex !== prediction.hash) {
-          return res.status(400).json({ message: "Content hash mismatch" });
-        }
+      // Verify SHA-256 of the content matches the stored hash
+      const { subtle } = webcrypto;
+      const hashBuffer = await subtle.digest("SHA-256", new TextEncoder().encode(content));
+      const hashHex = Buffer.from(hashBuffer).toString("hex");
+      if (hashHex !== prediction.hash) {
+        return res.status(400).json({ message: "Content hash mismatch" });
       }
 
-      await storage.revealPrediction(prediction.id, { content, is_public });
+      // Persist the plaintext only when publishing (as documented): a verified
+      // but private reveal must not leave content readable via /verify.
+      await storage.revealPrediction(prediction.id, {
+        content: is_public ? content : undefined,
+        is_public,
+      });
 
       return res.json({ ok: true, is_public });
     }
@@ -464,7 +518,10 @@ export async function registerRoutes(
       }
 
       const { vote_type, fingerprint } = parsed.data;
-      const prediction = await storage.getPredictionById(req.params.id as string);
+      if (!isUuid(req.params.id)) {
+        return res.status(404).json({ message: "Prediction not found" });
+      }
+      const prediction = await storage.getPredictionById(req.params.id);
       if (!prediction || !prediction.is_public) {
         return res.status(404).json({ message: "Prediction not found" });
       }
@@ -528,6 +585,13 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid public key format" });
       }
 
+      // Key bound at seal time: only its owner may claim. Legacy rows (sealed
+      // before keys were registered) have no stored key and keep the old
+      // first-valid-signature behavior.
+      if (prediction.public_key && pemBody(prediction.public_key) !== pemBody(public_key)) {
+        return res.status(403).json({ message: "Public key does not match the one registered at seal time" });
+      }
+
       // Verify RSA-PSS signature
       const valid = await verifyRsaPssSignature(hash, public_key, signature);
       if (!valid) {
@@ -568,6 +632,9 @@ export async function registerRoutes(
     "/api/attestations/:id",
     getLimiter,
     async (req: Request, res: Response) => {
+      if (!isUuid(req.params.id)) {
+        return res.status(404).json({ message: "Attestation not found" });
+      }
       const attestation = await storage.getAttestationById(req.params.id as string);
       if (!attestation) {
         return res.status(404).json({ message: "Attestation not found" });
@@ -643,8 +710,11 @@ export async function registerRoutes(
   // POST /api/admin/retry-arweave/:id
   app.post("/api/admin/retry-arweave/:id", getLimiter, async (req: Request, res: Response) => {
     if (!checkAdminSecret(req, res)) return;
+    if (!isUuid(req.params.id)) {
+      return res.status(404).json({ error: "Prediction not found" });
+    }
     try {
-      const prediction = await storage.getPredictionById(req.params.id as string);
+      const prediction = await storage.getPredictionById(req.params.id);
       if (!prediction) {
         return res.status(404).json({ error: "Prediction not found" });
       }
@@ -698,15 +768,7 @@ export async function registerRoutes(
   // GET /api/cron/arweave-retry
   // Called by Supabase pg_cron every hour. Protected by CRON_SECRET.
   app.get("/api/cron/arweave-retry", async (req: Request, res: Response) => {
-    const secret = process.env.CRON_SECRET;
-    if (!secret) return res.status(503).json({ error: "CRON_SECRET not configured" });
-    const provided = (req.headers.authorization ?? "").replace("Bearer ", "");
-    if (
-      provided.length !== secret.length ||
-      !timingSafeEqual(Buffer.from(provided), Buffer.from(secret))
-    ) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+    if (!checkCronSecret(req, res)) return;
     try {
       const { retryPendingUploads } = await import("./services/arweave");
       const succeeded = await retryPendingUploads();
@@ -720,21 +782,29 @@ export async function registerRoutes(
   // GET /api/cron/ots-poll
   // Called by Supabase pg_cron every 6h. Protected by CRON_SECRET.
   app.get("/api/cron/ots-poll", async (req: Request, res: Response) => {
-    const secret = process.env.CRON_SECRET;
-    if (!secret) return res.status(503).json({ error: "CRON_SECRET not configured" });
-    const provided = (req.headers.authorization ?? "").replace("Bearer ", "");
-    if (
-      provided.length !== secret.length ||
-      !timingSafeEqual(Buffer.from(provided), Buffer.from(secret))
-    ) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+    if (!checkCronSecret(req, res)) return;
     try {
       const { pollOtsStatus } = await import("./services/cron");
       const processed = await pollOtsStatus();
       return res.json({ ok: true, processed });
     } catch (err) {
       console.error("[cron/ots-poll] Error:", err);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // GET /api/cron/send-reminders
+  // Called by Supabase pg_cron every hour. Protected by CRON_SECRET.
+  // On Vercel node-cron never runs, so without this endpoint confirmed
+  // unlock reminders would stay pending forever.
+  app.get("/api/cron/send-reminders", async (req: Request, res: Response) => {
+    if (!checkCronSecret(req, res)) return;
+    try {
+      const { sendDueReminders } = await import("./services/cron");
+      const sent = await sendDueReminders();
+      return res.json({ ok: true, sent });
+    } catch (err) {
+      console.error("[cron/send-reminders] Error:", err);
       return res.status(500).json({ error: "Internal error" });
     }
   });

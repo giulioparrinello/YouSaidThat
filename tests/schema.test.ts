@@ -208,9 +208,9 @@ describe("waitlistSchema", () => {
 // ─── revealPredictionSchema ─────────────────────────────────────────────────────
 
 describe("revealPredictionSchema", () => {
-  it("accepts with is_public only", () => {
+  it("rejects is_public without content (content is the ownership proof)", () => {
     const result = revealPredictionSchema.safeParse({ is_public: true });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
   it("accepts with content and is_public", () => {

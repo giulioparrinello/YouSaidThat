@@ -761,14 +761,14 @@ curl https://arweave.net/<arweave_tx_id>
             path="/api/predictions/:id/reveal"
             description="Reveals the plaintext of a sealed prediction after the unlock time has passed. The server verifies SHA-256(content) matches the stored hash before publishing."
             request={`{
-  "content": "your original plaintext",   // optional — only if publishing
-  "is_public": true                        // set to true to add to public feed
+  "content": "your original plaintext",   // required — proves authorship
+  "is_public": true                        // true adds to feed, false removes
 }`}
             response={`{
   "ok": true,
   "is_public": true
 }`}
-            notes="Passing content without is_public: true discards the content after verification. Only submitted content is ever stored; nothing is persisted if is_public is false."
+            notes="content is mandatory: its hash is the proof that you are the author, so nobody else can publish or unpublish your prediction. With is_public: false the content is verified and then discarded; it is stored only when publishing."
           />
 
           <H3 id="api-claim">Claim authorship</H3>
@@ -790,7 +790,7 @@ curl https://arweave.net/<arweave_tx_id>
   "timestamp_verified": "2026-03-12T10:23:45.000Z",
   "bitcoin_block": 882451
 }`}
-            notes="The year gate is enforced server-side: target_year must be ≤ current year at the time of the claim request."
+            notes="The time gate is enforced server-side. For predictions sealed with a registered public key, only that key can claim (403 otherwise)."
           />
 
           <H3 id="api-attestation">Get attestation</H3>
